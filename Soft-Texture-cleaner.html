@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Texture Cleaner - Tool Standalone</title>
+    <link href="https://fonts.googleapis.com/css2?family=Segoe+UI:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #667eea;
+            --secondary: #764ba2;
+            --accent: #e94560;
+            --dark: #1a1a2e;
+            --light: #f1f1f1;
+            --gradient: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        /* Header */
+        header {
+            background: var(--gradient);
+            color: white;
+            padding: 60px 20px;
+            text-align: center;
+            border-radius: 0 0 50px 50px;
+            margin-bottom: 50px;
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .badge {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 20px;
+            display: inline-block;
+            backdrop-filter: blur(5px);
+        }
+
+        h1 {
+            font-size: 3.5em;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+            max-width: 600px;
+            margin: 0 auto 40px;
+        }
+
+        /* Hero Button */
+        .download-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: white;
+            color: var(--secondary);
+            padding: 18px 40px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: bold;
+            text-decoration: none;
+            transition: all 0.3s transform;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .download-btn:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15);
+        }
+
+        .download-info {
+            margin-top: 15px;
+            font-size: 0.9em;
+            opacity: 0.8;
+            color: white;
+        }
+
+        /* Features */
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 80px;
+        }
+
+        .feature-card {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            transition: transform 0.3s;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+        }
+
+        .icon {
+            font-size: 3em;
+            margin-bottom: 20px;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h3 {
+            color: var(--secondary);
+            margin-bottom: 15px;
+            font-size: 1.4em;
+        }
+
+        /* How it works */
+        .how-it-works {
+            background: white;
+            padding: 60px;
+            border-radius: 30px;
+            margin-bottom: 60px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+        }
+
+        .section-title {
+            text-align: center;
+            margin-bottom: 50px;
+            color: var(--secondary);
+            font-size: 2em;
+        }
+
+        .steps {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 30px;
+        }
+
+        .step {
+            flex: 1;
+            text-align: center;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .step-number {
+            background: var(--gradient);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            margin: 0 auto 20px;
+            font-size: 1.2em;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            margin-top: auto;
+        }
+
+        .back-link {
+            color: var(--secondary);
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5em;
+            }
+
+            .steps {
+                flex-direction: column;
+            }
+
+            .step {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <span class="badge">Windows Standalone Tool</span>
+        <h1>Texture Cleaner</h1>
+        <p class="subtitle">L'outil ultime pour nettoyer vos dossiers de textures. Comparez, analysez et supprimez les
+            fichiers inutilisés en toute sécurité.</p>
+
+        <div>
+            <a href="Outils%20local/Texture-cleaner/dist/Project-texture-cleaner.exe" class="download-btn" download>
+                <span>💾</span> Télécharger pour Windows
+            </a>
+            <p class="download-info">Version Portable (.exe) • Sans installation</p>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="features">
+            <div class="feature-card">
+                <div class="icon">📄</div>
+                <h3>Multi-Formats</h3>
+                <p>Importez vos listes de fichiers depuis des formats variés : JSON, Javascript, Babylon.js ou simple
+                    texte.</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🔍</div>
+                <h3>Scan Récursif</h3>
+                <p>Analysez des dossiers entiers et leurs sous-dossiers pour trouver toutes les images (.jpg, .png,
+                    .webp...).</p>
+            </div>
+            <div class="feature-card">
+                <div class="icon">🗑️</div>
+                <h3>Nettoyage Sûr</h3>
+                <p>Identifiez les fichiers orphelins et supprimez-les directement depuis l'interface avec confirmation.
+                </p>
+            </div>
+        </div>
+
+        <div class="how-it-works">
+            <h2 class="section-title">Comment ça marche ?</h2>
+            <div class="steps">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Importez</h3>
+                    <p>Sélectionnez vos fichiers sources contenant les références d'images valides.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Analysez</h3>
+                    <p>Choisissez le dossier d'images à scanner. L'outil compare automatiquement.</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Nettoyez</h3>
+                    <p>Visualisez les fichiers marquants ("Uniquement dans le dossier") et supprimez-les.</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <a href="../boite-a-outils.html" class="back-link">← Retour à la Boîte à Outils</a>
+    </footer>
+
+</body>
+
+</html>
