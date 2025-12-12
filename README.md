@@ -25,7 +25,7 @@ Application standalone pour comparer les images listées dans des fichiers texte
 - Windows 10/11
 
 ### 📥 Téléchargement direct
-[Télécharger l'exécutable](dist/Project-texture-cleaner.exe)
+[Télécharger l'exécutable](Outils%20local/Texture-cleaner/dist/Project-texture-cleaner.exe)
 
 ### Méthode 1 : Utiliser le script de build (RECOMMANDÉ)
 
