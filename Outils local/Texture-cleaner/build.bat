@@ -14,6 +14,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo [0/4] Incrémentation du numéro de build...
+python increment_build.py
+
 echo [1/4] Installation des dépendances...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt

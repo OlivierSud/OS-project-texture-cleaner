@@ -7,6 +7,8 @@ import sys
 import os
 import re
 import json
+import shutil
+import version
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -14,8 +16,8 @@ from PyQt6.QtWidgets import (
     QLineEdit, QMessageBox, QScrollArea, QGridLayout, QFrame,
     QSplitter, QGroupBox, QButtonGroup, QRadioButton, QTabWidget
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QPixmap, QIcon, QFont
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QRunnable, QThreadPool, QObject
+from PyQt6.QtGui import QPixmap, QIcon, QFont, QImage
 import ctypes
 
 def resource_path(relative_path):
@@ -29,16 +31,53 @@ def resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+class WorkerSignals(QObject):
+    """Signaux pour le worker de chargement d'image"""
+    finished = pyqtSignal(QImage)
+    error = pyqtSignal()
+
+class ThumbnailLoader(QRunnable):
+    """Worker pour charger les images en arrière-plan"""
+    def __init__(self, file_path, width, height):
+        super().__init__()
+        self.file_path = file_path
+        self.width = width
+        self.height = height
+        self.signals = WorkerSignals()
+
+    def run(self):
+        try:
+            if os.path.exists(self.file_path):
+                # Chargement de l'image (QImage est thread-safe, QPixmap non)
+                image = QImage(self.file_path)
+                if not image.isNull():
+                    # Redimensionnement haute qualité
+                    scaled_image = image.scaled(
+                        self.width, self.height,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
+                    )
+                    self.signals.finished.emit(scaled_image)
+                else:
+                    self.signals.error.emit()
+            else:
+                self.signals.error.emit()
+        except Exception:
+            self.signals.error.emit()
+
+
 class ImageThumbnail(QFrame):
     """Widget pour afficher une miniature d'image avec bouton de suppression"""
     deleteRequested = pyqtSignal(str)
     
-    def __init__(self, file_path, file_name, file_size, show_delete=False):
+    def __init__(self, file_path, file_name, file_size, pool=None, cache=None, show_delete=False):
         super().__init__()
         self.file_path = file_path
         self.file_name = file_name
         self.file_size = file_size
         self.marked_for_deletion = False
+        self.pool = pool
+        self.cache = cache
         
         self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
         self.setLineWidth(2)
@@ -53,15 +92,21 @@ class ImageThumbnail(QFrame):
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image_label.setStyleSheet("background-color: #2e2e4e; border-radius: 5px;")
         
-        if os.path.exists(file_path):
-            pixmap = QPixmap(file_path)
-            if not pixmap.isNull():
-                scaled_pixmap = pixmap.scaled(150, 120, Qt.AspectRatioMode.KeepAspectRatio, 
-                                              Qt.TransformationMode.SmoothTransformation)
-                self.image_label.setPixmap(scaled_pixmap)
-            else:
-                self.image_label.setText("🖼️")
-                self.image_label.setStyleSheet("background-color: #f0f0f0; font-size: 40px;")
+        # Vérifier le cache
+        if self.cache and self.file_path in self.cache:
+            self.image_label.setPixmap(QPixmap.fromImage(self.cache[self.file_path]))
+        elif self.pool:
+            # Placeholder initial
+            self.loading_label = QLabel("Chargement...")
+            self.loading_label.setStyleSheet("color: #aaa; font-size: 10px;")
+            self.image_label.setLayout(QVBoxLayout())
+            self.image_label.layout().addWidget(self.loading_label)
+            self.image_label.layout().setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            self.load_image_async()
+        else:
+             # Fallback synchrone
+             self.load_image_sync()
         
         layout.addWidget(self.image_label)
         
@@ -79,10 +124,10 @@ class ImageThumbnail(QFrame):
         
         # Bouton de suppression
         if show_delete:
-            self.delete_btn = QPushButton("🗑️ Supprimer")
+            self.delete_btn = QPushButton("🟦 Non Marqué")
             self.delete_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #f44336;
+                    background-color: #65bdcf;
                     color: white;
                     border: none;
                     padding: 5px;
@@ -98,14 +143,58 @@ class ImageThumbnail(QFrame):
         
         self.setLayout(layout)
         self.update_style()
+
+    def load_image_async(self):
+        """Lance le chargement asynchrone"""
+        loader = ThumbnailLoader(self.file_path, 150, 120)
+        loader.signals.finished.connect(self.on_image_loaded)
+        loader.signals.error.connect(self.on_image_error)
+        self.pool.start(loader)
+
+    def on_image_loaded(self, image):
+        """Callback quand l'image est chargée"""
+        # Mettre en cache
+        if self.cache is not None:
+            self.cache[self.file_path] = image
+
+        # Supprimer le placeholder
+        if self.image_label.layout():
+             # Nettoyage brutal mais efficace pour ce cas simple
+             QWidget().setLayout(self.image_label.layout())
+        
+        self.image_label.setPixmap(QPixmap.fromImage(image))
+    
+    def on_image_error(self):
+        """Callback en cas d'erreur de chargement"""
+        if self.image_label.layout():
+             QWidget().setLayout(self.image_label.layout())
+        
+        self.image_label.setText("🖼️")
+        self.image_label.setStyleSheet("background-color: #f0f0f0; font-size: 40px;")
+
+    def load_image_sync(self):
+        """Chargement synchrone (ancien comportement)"""
+        if os.path.exists(self.file_path):
+            pixmap = QPixmap(self.file_path)
+            if not pixmap.isNull():
+                scaled_pixmap = pixmap.scaled(150, 120, Qt.AspectRatioMode.KeepAspectRatio, 
+                                              Qt.TransformationMode.SmoothTransformation)
+                self.image_label.setPixmap(scaled_pixmap)
+                # Enlever le placeholder
+                if self.image_label.layout():
+                     QWidget().setLayout(self.image_label.layout())
+            else:
+                self.on_image_error()
+        else:
+             self.on_image_error()
     
     def toggle_delete_mark(self):
         self.marked_for_deletion = not self.marked_for_deletion
         if self.marked_for_deletion:
-            self.delete_btn.setText("✓ Marqué")
+            self.delete_btn.setText("✅ Marqué")
             self.delete_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #4caf50;
+                    background-color: #db3d21;
                     color: white;
                     border: none;
                     padding: 5px;
@@ -114,10 +203,10 @@ class ImageThumbnail(QFrame):
                 }
             """)
         else:
-            self.delete_btn.setText("🗑️ Supprimer")
+            self.delete_btn.setText("🟦 Non Marqué")
             self.delete_btn.setStyleSheet("""
                 QPushButton {
-                    background-color: #f44336;
+                    background-color: #65bdcf;
                     color: white;
                     border: none;
                     padding: 5px;
@@ -154,7 +243,7 @@ class ImageThumbnail(QFrame):
 class TextureCleaner(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("2D Texture Cleaner - 1. Liste les image présente dans les sources texte - 2. Liste les image présente dans le dossier - 3. Supprime les images non référencées")
+        self.setWindowTitle("2D Texture Cleaner")
         self.setGeometry(100, 100, 1600, 900)
         
         # État de l'application
@@ -163,6 +252,10 @@ class TextureCleaner(QMainWindow):
         self.folder_files = []  # Liste des fichiers du dossier avec chemins complets
         self.current_folder_path = ""  # Chemin du dossier actuel
         
+        # ThreadPool pour le chargement d'images
+        self.thread_pool = QThreadPool()
+        self.thumbnail_cache = {}  # Cache RAM pour les miniatures
+        
         self.setWindowIcon(QIcon(resource_path('icone_final.ico')))
         self.init_ui()
     
@@ -170,6 +263,11 @@ class TextureCleaner(QMainWindow):
         # Création des onglets
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
+        
+        # Build number
+        build_label = QLabel(f"Build: {version.BUILD_NUMBER}")
+        build_label.setStyleSheet("color: #666; font-size: 10px; padding-right: 10px;")
+        self.tabs.setCornerWidget(build_label, Qt.Corner.TopRightCorner)
         
         # --- Onglet 1: Nettoyage des fichiers ---
         self.cleaner_tab = QWidget()
@@ -202,7 +300,7 @@ class TextureCleaner(QMainWindow):
         header.setStyleSheet("font-size: 16px; font-weight: bold;") # Police réduite
         header_layout.addWidget(header)
         
-        subtitle = QLabel("- Comparateur d'images")
+        subtitle = QLabel("- 1️⃣. Liste les image présente dans les sources texte - 2️⃣. Liste les image présente dans le dossier - 3️⃣. Supprime les images non référencées")
         subtitle.setStyleSheet("font-size: 13px; color: #e0e0e0;")
         header_layout.addWidget(subtitle)
         
@@ -818,7 +916,24 @@ class TextureCleaner(QMainWindow):
         self.stat_missing.setProperty("count", len(only_in_folder))
         self.stat_missing.setProperty("fileSize", ImageThumbnail.format_file_size(missing_size))
         self.update_stat_card(self.stat_missing)
+        
+        # Lancer le préchargement des miniatures
+        self.preload_thumbnails()
     
+    def preload_thumbnails(self):
+        """Précharge les miniatures en arrière-plan"""
+        for file_info in self.folder_files:
+            path = file_info['path']
+            if path not in self.thumbnail_cache:
+                loader = ThumbnailLoader(path, 150, 120)
+                # On utilise une lambda pour capturer le chemin
+                loader.signals.finished.connect(lambda img, p=path: self.on_thumbnail_preloaded(p, img))
+                self.thread_pool.start(loader)
+    
+    def on_thumbnail_preloaded(self, path, image):
+        """Callback de préchargement"""
+        self.thumbnail_cache[path] = image
+
     def show_modal(self, modal_type):
         """Affiche une fenêtre modale avec les miniatures"""
         from PyQt6.QtWidgets import QDialog, QDialogButtonBox
@@ -847,7 +962,7 @@ class TextureCleaner(QMainWindow):
         title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e94560; padding: 10px; background-color: #0f3460; border-radius: 8px;")
         layout.addWidget(title_label)
         
-        # Boutons d'action pour "missing"
+            # Boutons d'action pour "missing"
         if modal_type == 'missing' and files_to_show:
             action_layout = QHBoxLayout()
             
@@ -863,11 +978,27 @@ class TextureCleaner(QMainWindow):
                 QPushButton:hover {
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                         stop:0 #6a4390, stop:1 #ff5577);
-                }
+                    }
             """)
             
-            delete_btn = QPushButton("🗑️ Supprimer les fichiers sélectionnés")
-            delete_btn.setStyleSheet("""
+            self.move_btn = QPushButton("📂 Déplacer la sélection")
+            self.move_btn.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 #ff9800, stop:1 #f57c00);
+                    color: white;
+                    padding: 12px;
+                    font-size: 14px;
+                }
+                 QPushButton:disabled {
+                    background: #555;
+                    color: #aaa;
+                }
+            """)
+            self.move_btn.setEnabled(False)
+
+            self.delete_btn = QPushButton("🗑️ Supprimer la sélection")
+            self.delete_btn.setStyleSheet("""
                 QPushButton {
                     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                         stop:0 #f44336, stop:1 #e91e63);
@@ -875,11 +1006,16 @@ class TextureCleaner(QMainWindow):
                     padding: 12px;
                     font-size: 14px;
                 }
+                 QPushButton:disabled {
+                    background: #555;
+                    color: #aaa;
+                }
             """)
-            delete_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
             
             action_layout.addWidget(select_all_btn)
-            action_layout.addWidget(delete_btn)
+            action_layout.addWidget(self.move_btn)
+            action_layout.addWidget(self.delete_btn)
             layout.addLayout(action_layout)
             
             # Séparateur
@@ -931,13 +1067,15 @@ class TextureCleaner(QMainWindow):
                     file_info['path'],
                     file_info['name'],
                     file_info['size'],
+                    pool=self.thread_pool,
+                    cache=self.thumbnail_cache,
                     show_delete=(modal_type == 'missing')
                 )
                 thumbnails.append(thumb)
                 
                 if modal_type == 'missing':
-                    thumb.deleteRequested.connect(lambda path, btn=delete_btn, thumbs=thumbnails: 
-                                                  self.update_delete_button(btn, thumbs))
+                    thumb.deleteRequested.connect(lambda path, thumbs=thumbnails: 
+                                                  self.update_action_buttons(thumbs))
                 
                 grid_layout.addWidget(thumb, row, col)
             
@@ -959,8 +1097,9 @@ class TextureCleaner(QMainWindow):
         
         # Connecter les boutons d'action
         if modal_type == 'missing' and files_to_show:
-            select_all_btn.clicked.connect(lambda: self.toggle_select_all(thumbnails, select_all_btn, delete_btn))
-            delete_btn.clicked.connect(lambda: self.delete_selected_files(thumbnails, dialog))
+            select_all_btn.clicked.connect(lambda: self.toggle_select_all(thumbnails, select_all_btn))
+            self.delete_btn.clicked.connect(lambda: self.delete_selected_files(thumbnails, dialog))
+            self.move_btn.clicked.connect(lambda: self.move_selected_files(thumbnails, dialog))
         
         dialog.setLayout(layout)
         dialog.setStyleSheet("QDialog { background-color: #1a1a2e; }")
@@ -969,7 +1108,7 @@ class TextureCleaner(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
     
-    def toggle_select_all(self, thumbnails, select_btn, delete_btn):
+    def toggle_select_all(self, thumbnails, select_btn):
         """Sélectionne ou désélectionne tous les fichiers"""
         all_selected = all(thumb.marked_for_deletion for thumb in thumbnails)
         
@@ -979,7 +1118,7 @@ class TextureCleaner(QMainWindow):
             elif not all_selected and not thumb.marked_for_deletion:
                 thumb.toggle_delete_mark()
         
-        self.update_delete_button(delete_btn, thumbnails)
+        self.update_action_buttons(thumbnails)
         
         # Mettre à jour le texte du bouton
         if all_selected:
@@ -987,16 +1126,70 @@ class TextureCleaner(QMainWindow):
         else:
             select_btn.setText(f"✖️ Tout désélectionner ({len(thumbnails)} fichiers)")
     
-    def update_delete_button(self, delete_btn, thumbnails):
-        """Met à jour l'état du bouton de suppression"""
+    def update_action_buttons(self, thumbnails):
+        """Met à jour l'état des boutons d'action"""
         selected_count = sum(1 for thumb in thumbnails if thumb.marked_for_deletion)
         
         if selected_count > 0:
-            delete_btn.setEnabled(True)
-            delete_btn.setText(f"🗑️ Supprimer les fichiers sélectionnés ({selected_count})")
+            self.delete_btn.setEnabled(True)
+            self.delete_btn.setText(f"🗑️ Supprimer la sélection ({selected_count})")
+            
+            self.move_btn.setEnabled(True)
+            self.move_btn.setText(f"📂 Déplacer la sélection ({selected_count})")
         else:
-            delete_btn.setEnabled(False)
-            delete_btn.setText("🗑️ Supprimer les fichiers sélectionnés")
+            self.delete_btn.setEnabled(False)
+            self.delete_btn.setText("🗑️ Supprimer la sélection")
+            
+            self.move_btn.setEnabled(False)
+            self.move_btn.setText("📂 Déplacer la sélection")
+
+    def move_selected_files(self, thumbnails, dialog):
+        """Déplace les fichiers sélectionnés vers un autre dossier"""
+        files_to_move = [thumb.file_path for thumb in thumbnails if thumb.marked_for_deletion]
+        
+        if not files_to_move:
+            return
+            
+        # Demander le dossier de destination
+        dest_folder = QFileDialog.getExistingDirectory(self, "Choisir le dossier de destination")
+        if not dest_folder:
+            return
+            
+        moved_count = 0
+        failed_files = []
+        
+        for file_path in files_to_move:
+            try:
+                # Calculer le nouveau chemin
+                file_name = os.path.basename(file_path)
+                dest_path = os.path.join(dest_folder, file_name)
+                
+                # Déplacement
+                shutil.move(file_path, dest_path)
+                
+                moved_count += 1
+                # Retirer de la liste
+                self.folder_files = [f for f in self.folder_files if f['path'] != file_path]
+            except Exception as e:
+                failed_files.append((file_path, str(e)))
+                
+        # Rapport
+        message = f"✅ {moved_count} fichier(s) déplacé(s) avec succès."
+        if failed_files:
+            message += f"\n\n❌ {len(failed_files)} échec(s):\n"
+            for file_path, error in failed_files[:5]:
+                message += f"\n• {os.path.basename(file_path)}: {error}"
+            if len(failed_files) > 5:
+                message += f"\n... et {len(failed_files) - 5} autre(s)"
+        
+        QMessageBox.information(self, "Résultat du déplacement", message)
+        
+        # Rafraîchir l'interface
+        self.refresh_folder_list()
+        self.update_stats()
+        
+        # Fermer la modal car l'état a changé
+        dialog.accept()
     
     def delete_selected_files(self, thumbnails, dialog):
         """Supprime les fichiers sélectionnés"""
