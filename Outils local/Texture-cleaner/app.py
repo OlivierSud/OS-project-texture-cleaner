@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QListWidgetItem,
     QLineEdit, QMessageBox, QScrollArea, QGridLayout, QFrame,
-    QSplitter, QGroupBox, QButtonGroup, QRadioButton
+    QSplitter, QGroupBox, QButtonGroup, QRadioButton, QTabWidget
 )
 from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon, QFont
@@ -154,7 +154,7 @@ class ImageThumbnail(QFrame):
 class TextureCleaner(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("2D Texture Listing - Comparateur d'Images")
+        self.setWindowTitle("2D Texture Cleaner - 1. Liste les image présente dans les sources texte - 2. Liste les image présente dans le dossier - 3. Supprime les images non référencées")
         self.setGeometry(100, 100, 1600, 900)
         
         # État de l'application
@@ -167,23 +167,30 @@ class TextureCleaner(QMainWindow):
         self.init_ui()
     
     def init_ui(self):
-        # Widget central
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
+        # Création des onglets
+        self.tabs = QTabWidget()
+        self.setCentralWidget(self.tabs)
         
-        main_layout = QVBoxLayout()
-        central_widget.setLayout(main_layout)
+        # --- Onglet 1: Nettoyage des fichiers ---
+        self.cleaner_tab = QWidget()
+        self.tabs.addTab(self.cleaner_tab, "Nettoyage des fichiers")
+        
+        # Layout pour l'onglet de nettoyage (ancien main_layout)
+        cleaner_layout = QVBoxLayout()
+        self.cleaner_tab.setLayout(cleaner_layout)
         
         # Header
         header_container = QWidget()
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(5)
+        header_container.setMaximumHeight(50)  # Contrainte de hauteur
+        header_layout = QHBoxLayout() # Layout horizontal
+        header_layout.setContentsMargins(10, 5, 10, 5) # Marges réduites
+        header_layout.setSpacing(10)
         header_container.setLayout(header_layout)
         header_container.setStyleSheet("""
             QWidget {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #667eea, stop:1 #764ba2);
-                border-radius: 15px;
+                border-radius: 8px; /* Rayon réduit */
             }
             QLabel {
                 background: transparent;
@@ -192,16 +199,17 @@ class TextureCleaner(QMainWindow):
         """)
         
         header = QLabel("🖼️ 2D Texture Listing")
-        header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("font-size: 24px; font-weight: bold; margin-top: 10px;")
+        header.setStyleSheet("font-size: 16px; font-weight: bold;") # Police réduite
         header_layout.addWidget(header)
         
-        subtitle = QLabel("Comparateur d'images entre fichier source et dossier")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("font-size: 13px; color: #e0e0e0; margin-bottom: 10px;")
+        subtitle = QLabel("- Comparateur d'images")
+        subtitle.setStyleSheet("font-size: 13px; color: #e0e0e0;")
         header_layout.addWidget(subtitle)
         
-        main_layout.addWidget(header_container)
+        header_layout.addStretch() # Pousser le reste à gauche
+
+        
+        cleaner_layout.addWidget(header_container)
         
         # Splitter pour les 3 colonnes
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -219,13 +227,49 @@ class TextureCleaner(QMainWindow):
         splitter.addWidget(col3)
         
         splitter.setSizes([500, 500, 400])
-        main_layout.addWidget(splitter)
+        cleaner_layout.addWidget(splitter)
+        
+        # --- Onglet 2: Resize ---
+        self.resize_tab = QWidget()
+        self.tabs.addTab(self.resize_tab, "Resize")
+        resize_layout = QVBoxLayout()
+        self.resize_tab.setLayout(resize_layout)
+        label_resize = QLabel("Fonctionnalité Resize à venir")
+        label_resize.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        resize_layout.addWidget(label_resize)
+
+        # --- Onglet 3: Compression ---
+        self.compression_tab = QWidget()
+        self.tabs.addTab(self.compression_tab, "Compression")
+        compression_layout = QVBoxLayout()
+        self.compression_tab.setLayout(compression_layout)
+        label_compression = QLabel("Fonctionnalité Compression à venir")
+        label_compression.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        compression_layout.addWidget(label_compression)
         
         # Style global - Mode sombre
         self.setStyleSheet("""
             QMainWindow {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #1a1a2e, stop:1 #16213e);
+            }
+            QTabWidget::pane {
+                border: 1px solid #533483;
+                background-color: #1a1a2e;
+            }
+            QTabBar::tab {
+                background: #0f3460;
+                color: #f1f1f1;
+                padding: 10px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background: #16213e;
+                border-bottom: 2px solid #e94560;
+                color: #e94560;
+                font-weight: bold;
             }
             QGroupBox {
                 background-color: #0f3460;
@@ -268,14 +312,14 @@ class TextureCleaner(QMainWindow):
         """)
     
     def create_source_column(self):
-        group = QGroupBox("📄 Fichier Source")
+        group = QGroupBox("📄 Source texte")
         layout = QVBoxLayout()
         
         # Layout boutons
         btn_layout = QHBoxLayout()
         
         # Bouton de sélection
-        select_btn = QPushButton("📁 Sélectionner des fichiers")
+        select_btn = QPushButton("📁 Dossier de textures")
         select_btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -371,7 +415,7 @@ class TextureCleaner(QMainWindow):
         return group
     
     def create_folder_column(self):
-        group = QGroupBox("📁 Dossier d'Images")
+        group = QGroupBox("📁  Dossier de textures")
         layout = QVBoxLayout()
         
         # Layout boutons
@@ -431,7 +475,7 @@ class TextureCleaner(QMainWindow):
         filter_layout = QHBoxLayout()
         self.folder_filter_group = QButtonGroup()
         
-        filters = [("Tous", "all"), ("✅ Présents", "green"), ("❌ Manquants", "red")]
+        filters = [("Tous", "all"), ("✅ Utilisées", "green"), ("❌ Non utilisées", "red")]
         for i, (label, value) in enumerate(filters):
             radio = QRadioButton(label)
             radio.setProperty("filter_value", value)
@@ -448,7 +492,7 @@ class TextureCleaner(QMainWindow):
         return group
     
     def create_stats_column(self):
-        group = QGroupBox("📊 Statistiques")
+        group = QGroupBox("📊 Récapitulatif")
         layout = QVBoxLayout()
         
         # Légende

@@ -37,7 +37,7 @@ python -m PyInstaller --name="Project-texture-cleaner" ^
     --windowed ^
     --icon=icone_final.ico ^
     --add-data="icone_final.ico;." ^
-    --add-data="README.md;." ^
+    --add-data="..\..\README.md;." ^
     app.py
 
 if errorlevel 1 (
