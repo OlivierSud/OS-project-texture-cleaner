@@ -14,10 +14,16 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QFileDialog, QListWidget, QListWidgetItem,
     QLineEdit, QMessageBox, QScrollArea, QGridLayout, QFrame,
-    QSplitter, QGroupBox, QButtonGroup, QRadioButton, QTabWidget
+    QSplitter, QGroupBox, QButtonGroup, QRadioButton, QTabWidget,
+    QComboBox, QSpinBox, QDoubleSpinBox, QProgressBar, QDialogButtonBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QCheckBox,
+    QDialog, QTextEdit, QPlainTextEdit
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QRunnable, QThreadPool, QObject
-from PyQt6.QtGui import QPixmap, QIcon, QFont, QImage
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QRunnable, QThreadPool, QObject, QRegularExpression
+from PyQt6.QtGui import (
+    QPixmap, QIcon, QFont, QImage, QImageReader, QTextCharFormat, 
+    QColor, QTextCursor, QSyntaxHighlighter, QTextDocument
+)
 import ctypes
 
 def resource_path(relative_path):
@@ -240,6 +246,316 @@ class ImageThumbnail(QFrame):
         return f"{size:.2f} {sizes[i]}"
 
 
+class SegmentedToggle(QFrame):
+    toggled = pyqtSignal(bool) # True = Left, False = Right
+
+    def __init__(self, left_text, right_text, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(200, 40)
+        self.setStyleSheet("background-color: transparent;")
+        
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.setLayout(layout)
+        
+        self.btn_left = QPushButton(left_text)
+        self.btn_left.setCheckable(True)
+        self.btn_left.setChecked(True)
+        self.btn_left.clicked.connect(self.on_left_clicked)
+        self.btn_left.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_left.setSizePolicy(self.btn_left.sizePolicy().horizontalPolicy(), self.btn_left.sizePolicy().verticalPolicy())
+        
+        self.btn_right = QPushButton(right_text)
+        self.btn_right.setCheckable(True)
+        self.btn_right.setChecked(False)
+        self.btn_right.clicked.connect(self.on_right_clicked)
+        self.btn_right.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_right.setSizePolicy(self.btn_right.sizePolicy().horizontalPolicy(), self.btn_right.sizePolicy().verticalPolicy())
+        
+        layout.addWidget(self.btn_left)
+        layout.addWidget(self.btn_right)
+        
+        self.update_style()
+
+    def on_left_clicked(self):
+        if not self.btn_left.isChecked():
+            self.btn_left.setChecked(True)
+        self.btn_right.setChecked(False)
+        self.update_style()
+        self.toggled.emit(True)
+
+    def on_right_clicked(self):
+        if not self.btn_right.isChecked():
+            self.btn_right.setChecked(True)
+        self.btn_left.setChecked(False)
+        self.update_style()
+        self.toggled.emit(False)
+        
+    def is_left_active(self):
+        return self.btn_left.isChecked()
+
+    def update_style(self):
+        # Style inspiré de l'image (Green / Dark)
+        active_style = """
+            background-color: #00d9ff; 
+            color: #1a1a2e; 
+            font-weight: bold;
+            border: 1px solid #00d9ff;
+        """
+        inactive_style = """
+            background-color: #333333; 
+            color: #888888; 
+            font-weight: normal;
+            border: 1px solid #555555;
+        """
+        
+        # Left button styling
+        base_left = """
+            QPushButton {
+                border-top-left-radius: 20px;
+                border-bottom-left-radius: 20px;
+                font-size: 14px;
+                padding: 5px;
+        """
+        if self.btn_left.isChecked():
+            self.btn_left.setStyleSheet(base_left + active_style + "}")
+        else:
+            self.btn_left.setStyleSheet(base_left + inactive_style + "}")
+            
+        # Right button styling
+        base_right = """
+            QPushButton {
+                border-top-right-radius: 20px;
+                border-bottom-right-radius: 20px;
+                font-size: 14px;
+                padding: 5px;
+        """
+        if self.btn_right.isChecked():
+            dim_active_style = """
+                background-color: #ff9800; 
+                color: #1a1a2e; 
+                font-weight: bold;
+                border: 1px solid #ff9800;
+            """
+            self.btn_right.setStyleSheet(base_right + dim_active_style + "}")
+        else:
+            self.btn_right.setStyleSheet(base_right + inactive_style + "}")
+
+
+
+class AdvancedUsageDialog(QDialog):
+    def __init__(self, usage_data, image_name, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(f"Usage de : {image_name}")
+        self.setMinimumSize(900, 600)
+        self.usage_data = usage_data
+        self.image_name = image_name
+        self.file_paths = list(usage_data.keys())
+        self.current_match_cursors = []
+        self.current_match_index = -1
+        
+        self.init_ui()
+        
+        if self.file_paths:
+            self.load_file(0)
+            
+    def init_ui(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # --- Toolbar ---
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(10)
+        
+        # Sélecteur de fichier
+        toolbar.addWidget(QLabel("📁 Fichier :"))
+        self.file_combo = QComboBox()
+        for path in self.file_paths:
+            self.file_combo.addItem(os.path.basename(path), path)
+        self.file_combo.currentIndexChanged.connect(self.load_file)
+        self.file_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #1a1a2e;
+                color: #f1f1f1;
+                border: 1px solid #533483;
+                padding: 5px;
+                min-width: 200px;
+            }
+        """)
+        toolbar.addWidget(self.file_combo)
+        
+        toolbar.addSpacing(20)
+        
+        # Navigation occurrences
+        self.prev_btn = QPushButton("⬆️ Précédent")
+        self.prev_btn.clicked.connect(self.prev_match)
+        self.next_btn = QPushButton("⬇️ Suivant")
+        self.next_btn.clicked.connect(self.next_match)
+        self.match_label = QLabel("Occurrence : 0 / 0")
+        
+        btn_style = """
+            QPushButton {
+                background-color: #533483;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 4px;
+            }
+            QPushButton:hover { background-color: #6a42a8; }
+        """
+        self.prev_btn.setStyleSheet(btn_style)
+        self.next_btn.setStyleSheet(btn_style)
+        self.match_label.setStyleSheet("color: #e94560; font-weight: bold;")
+        
+        toolbar.addWidget(self.prev_btn)
+        toolbar.addWidget(self.match_label)
+        toolbar.addWidget(self.next_btn)
+        
+        toolbar.addStretch()
+        
+        layout.addLayout(toolbar)
+        
+        # --- Text Editor ---
+        self.text_edit = QPlainTextEdit()
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #1a1a2e;
+                color: #f1f1f1;
+                border: 1px solid #533483;
+                border-radius: 5px;
+                font-family: Consolas, 'Courier New', monospace;
+                font-size: 13px;
+                padding-left: 5px;
+            }
+        """)
+        layout.addWidget(self.text_edit)
+        
+        # Close button
+        close_btn = QPushButton("Fermer")
+        close_btn.clicked.connect(self.accept)
+        close_btn.setStyleSheet(btn_style)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+
+    def load_file(self, index):
+        if index < 0 or index >= len(self.file_paths):
+            return
+            
+        file_path = self.file_paths[index]
+        self.current_match_cursors = []
+        self.current_match_index = -1
+        
+        # Charger le contenu
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Remplissage
+            self.text_edit.setPlainText(content)
+            
+            # Recherche et Highlight
+            self.highlight_matches()
+            
+            # Aller au premier match
+            if self.current_match_cursors:
+                self.next_match()
+            else:
+                self.match_label.setText("Occurrence : 0 / 0")
+
+        except Exception as e:
+            self.text_edit.setPlainText(f"Erreur de lecture du fichier : {e}")
+
+    def highlight_matches(self):
+        """Surligne toutes les occurrences et stocke leurs positions"""
+        doc = self.text_edit.document()
+        cursor = QTextCursor(doc)
+        
+        # Reset format
+        cursor.select(QTextCursor.SelectionType.Document)
+        format_normal = QTextCharFormat()
+        format_normal.setBackground(QColor("#1a1a2e")) # Fond normal
+        cursor.setCharFormat(format_normal)
+        cursor.clearSelection() # Clear selection after applying format
+        
+        # Find format
+        format_highlight = QTextCharFormat()
+        format_highlight.setBackground(QColor("#533483")) # Fond violet sombre pour tous les matches
+        format_highlight.setForeground(Qt.GlobalColor.white)
+        format_highlight.setFontWeight(QFont.Weight.Bold)
+        
+        # Setup Regex
+        # Escape the search term to treat it as literal string but allow case insensitive flag
+        regex = QRegularExpression(QRegularExpression.escape(self.image_name))
+        regex.setPatternOptions(QRegularExpression.PatternOption.CaseInsensitiveOption)
+        
+        # Search loop
+        cursor = QTextCursor(doc)
+        while True:
+            # find() with QRegularExpression returns a cursor with selection covering the match
+            cursor = doc.find(regex, cursor)
+            
+            if cursor.isNull():
+                break
+                
+            cursor.mergeCharFormat(format_highlight)
+            self.current_match_cursors.append(QTextCursor(cursor)) # Store copy
+        
+        # Update UI count
+        self.match_label.setText(f"Occurrence : 0 / {len(self.current_match_cursors)}")
+
+    def next_match(self):
+        if not self.current_match_cursors:
+            return
+            
+        self.current_match_index += 1
+        if self.current_match_index >= len(self.current_match_cursors):
+            self.current_match_index = 0
+        
+        self.focus_match(self.current_match_index)
+
+    def prev_match(self):
+        if not self.current_match_cursors:
+            return
+            
+        self.current_match_index -= 1
+        if self.current_match_index < 0:
+            self.current_match_index = len(self.current_match_cursors) - 1
+            
+        self.focus_match(self.current_match_index)
+        
+    def focus_match(self, index):
+        # Reset previous active if any (complex to track, so let's just re-highlight all then highlight active)
+        # Optimization: keep track of last active index
+        
+        # For simplicity: Re-highlight all simply ensures base color, then apply active color to current.
+        # But `highlight_matches` rebuilds list. We don't want that.
+        # Just iterating colors is fine.
+        
+        format_highlight = QTextCharFormat()
+        format_highlight.setBackground(QColor("#533483"))
+        format_highlight.setForeground(Qt.GlobalColor.white)
+        format_highlight.setFontWeight(QFont.Weight.Bold)
+        
+        format_active = QTextCharFormat()
+        format_active.setBackground(QColor("#e94560")) 
+        format_active.setForeground(Qt.GlobalColor.white)
+        format_active.setFontWeight(QFont.Weight.Bold)
+
+        # Reset all to normal highlight
+        for cur in self.current_match_cursors:
+             cur.setCharFormat(format_highlight)
+             
+        # Set active
+        cursor = self.current_match_cursors[index]
+        cursor.setCharFormat(format_active)
+
+        self.text_edit.setTextCursor(cursor)
+        self.text_edit.centerCursor()
+        
+        self.match_label.setText(f"Occurrence : {index + 1} / {len(self.current_match_cursors)}")
+
+
 class TextureCleaner(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -251,6 +567,7 @@ class TextureCleaner(QMainWindow):
         self.imported_source_files = []  # Liste des fichiers texte importés avec chemins
         self.folder_files = []  # Liste des fichiers du dossier avec chemins complets
         self.current_folder_path = ""  # Chemin du dossier actuel
+        self.resize_folder_path = "" # Chemin du dossier pour l'onglet Resize
         
         # ThreadPool pour le chargement d'images
         self.thread_pool = QThreadPool()
@@ -330,11 +647,225 @@ class TextureCleaner(QMainWindow):
         # --- Onglet 2: Resize ---
         self.resize_tab = QWidget()
         self.tabs.addTab(self.resize_tab, "Resize")
-        resize_layout = QVBoxLayout()
-        self.resize_tab.setLayout(resize_layout)
-        label_resize = QLabel("Fonctionnalité Resize à venir")
-        label_resize.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        resize_layout.addWidget(label_resize)
+        
+        # Layout principal vertical pour l'onglet
+        resize_main_layout = QVBoxLayout()
+        self.resize_tab.setLayout(resize_main_layout)
+        
+        # --- Zone Haute : Colonnes et Options ---
+        top_area_layout = QHBoxLayout()
+        resize_main_layout.addLayout(top_area_layout, 1) # prend tout l'espace dispo
+        
+        # --- Colonne Gauche: Tableau des textures ---
+        left_col = QWidget()
+        left_layout = QVBoxLayout()
+        left_col.setLayout(left_layout)
+        
+        # Header Colonne Gauche
+        left_header = QLabel("🖼️ Textures du projet")
+        left_header.setStyleSheet("font-size: 16px; font-weight: bold; color: #e94560;")
+        left_layout.addWidget(left_header)
+        
+        # Sélection dossier
+        folder_layout = QHBoxLayout()
+        self.resize_folder_btn = QPushButton("📂 Sélectionner dossier cible")
+        self.resize_folder_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #667eea, stop:1 #764ba2);
+                color: white;
+                padding: 8px;
+            }
+        """)
+        self.resize_folder_btn.clicked.connect(self.select_resize_folder)
+        folder_layout.addWidget(self.resize_folder_btn)
+        
+        refresh_resize_btn = QPushButton("🔄")
+        refresh_resize_btn.setFixedSize(35, 35)
+        refresh_resize_btn.setStyleSheet("background-color: #00d9ff; color: white; border-radius: 5px;")
+        refresh_resize_btn.clicked.connect(self.refresh_resize_list)
+        folder_layout.addWidget(refresh_resize_btn)
+        
+        left_layout.addLayout(folder_layout)
+        
+        # Select All / Deselect All
+        select_layout = QHBoxLayout()
+        self.select_all_cb = QCheckBox("Tout sélectionner")
+        self.select_all_cb.setChecked(True)
+        self.select_all_cb.setStyleSheet("color: #00d9ff; font-weight: bold;")
+        self.select_all_cb.toggled.connect(self.toggle_all_checkboxes)
+        select_layout.addWidget(self.select_all_cb)
+        select_layout.addStretch()
+        left_layout.addLayout(select_layout)
+        
+        # Tableau des fichiers (Remplace QListWidget)
+        self.resize_table = QTableWidget()
+        self.resize_table.setColumnCount(3)
+        self.resize_table.setHorizontalHeaderLabels(["Fichier", "Dimensions (Av. > Ap.)", "Poids (Av. > Ap.)"])
+        
+        # Config tableau style
+        self.resize_table.setStyleSheet("""
+            QTableWidget {
+                background-color: #1a1a2e;
+                color: #f1f1f1;
+                gridline-color: #533483;
+                border: 1px solid #533483;
+                border-radius: 8px;
+            }
+            QHeaderView::section {
+                background-color: #0f3460;
+                color: white;
+                padding: 5px;
+                border: none;
+                font-weight: bold;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QTableWidget::item:selected {
+                background-color: #e94560;
+                color: white;
+            }
+        """)
+        self.resize_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.resize_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.resize_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.resize_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.resize_table.verticalHeader().setVisible(False)
+        self.resize_table.cellDoubleClicked.connect(self.open_image_popup_from_table) # Popup double clic
+        self.resize_table.itemSelectionChanged.connect(self.reset_resize_options_ui) # Reset UI on selection change
+        
+        left_layout.addWidget(self.resize_table)
+        
+        top_area_layout.addWidget(left_col, 2) # Plus large que les options
+        
+        # --- Colonne Droite: Options ---
+        right_col = QGroupBox("🛠️ Options")
+        right_layout = QVBoxLayout()
+        right_col.setLayout(right_layout)
+        
+        # Mode de redimensionnement (Nouveau Switch Custom)
+        switch_layout = QHBoxLayout()
+        switch_layout.addStretch()
+        
+        # Instantiation du Toggle Switch
+        self.mode_switch = SegmentedToggle("🔒 Ratio Fixe", "🔓 Dimensions", self)
+        
+        switch_layout.addWidget(self.mode_switch)
+        switch_layout.addStretch()
+        
+        right_layout.addLayout(switch_layout)
+        right_layout.addSpacing(10)
+        
+        # Options Ratio
+        self.ratio_options_frame = QFrame()
+        ratio_layout = QVBoxLayout()
+        self.ratio_options_frame.setLayout(ratio_layout)
+        
+        self.ratio_type_combo = QComboBox()
+        self.ratio_type_combo.addItems(["Pourcentage de réduction", "Largeur fixe (Hauteur auto)", "Hauteur fixe (Largeur auto)"])
+        ratio_layout.addWidget(self.ratio_type_combo)
+        
+        self.ratio_value_spin = QSpinBox()
+        self.ratio_value_spin.setRange(1, 10000)
+        self.ratio_value_spin.setValue(50) # Defaut 50%
+        self.ratio_value_spin.setSuffix(" %")
+        ratio_layout.addWidget(self.ratio_value_spin)
+        
+        right_layout.addWidget(self.ratio_options_frame)
+        
+        # Options Dimensions Fixes
+        self.fixed_options_frame = QFrame()
+        self.fixed_options_frame.setEnabled(False) # Désactivé par défaut
+        self.fixed_options_frame.hide() # Caché par défaut
+        fixed_layout = QVBoxLayout()
+        self.fixed_options_frame.setLayout(fixed_layout)
+        
+        fixed_form = QHBoxLayout()
+        fixed_form.addWidget(QLabel("L:"))
+        self.fixed_width_spin = QSpinBox()
+        self.fixed_width_spin.setRange(1, 10000)
+        self.fixed_width_spin.setValue(1024)
+        self.fixed_width_spin.setSuffix(" px")
+        fixed_form.addWidget(self.fixed_width_spin)
+        
+        fixed_form.addWidget(QLabel("H:"))
+        self.fixed_height_spin = QSpinBox()
+        self.fixed_height_spin.setRange(1, 10000)
+        self.fixed_height_spin.setValue(1024)
+        self.fixed_height_spin.setSuffix(" px")
+        fixed_form.addWidget(self.fixed_height_spin)
+        
+        fixed_layout.addLayout(fixed_form)
+        right_layout.addWidget(self.fixed_options_frame)
+        
+        # Bouton Appliquer à la sélection
+        self.apply_btn = QPushButton("Associer ces réglages à la sélection")
+        self.apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #533483;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border-radius: 6px;
+                margin-top: 10px;
+            }
+            QPushButton:hover { background-color: #6a42a8; }
+        """)
+        self.apply_btn.clicked.connect(self.apply_settings_to_selection)
+        right_layout.addWidget(self.apply_btn)
+        
+        right_layout.addStretch()
+        top_area_layout.addWidget(right_col, 1) # Plus petit
+
+        # --- Zone Basse: Stats et Actions ---
+        bottom_container = QFrame()
+        bottom_container.setStyleSheet("background-color: #0f3460; border-top: 2px solid #533483; border-radius: 0px 0px 8px 8px;")
+        bottom_layout = QVBoxLayout()
+        bottom_container.setLayout(bottom_layout)
+
+        # Stats Globales
+        self.global_stats_label = QLabel("Poids Total : 0 MB -> 0 MB | Gain : 0 MB (0%)")
+        self.global_stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f1f1; padding: 5px;")
+        bottom_layout.addWidget(self.global_stats_label)
+
+        # Bouton d'exécution
+        self.execute_btn = QPushButton("🚀 Lancer l'optimisation")
+        self.execute_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #00b09b, stop:1 #96c93d);
+                color: white;
+                font-weight: bold;
+                padding: 15px;
+                font-size: 18px;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 #00c9b1, stop:1 #a8df44);
+            }
+        """)
+        self.execute_btn.clicked.connect(self.execute_resize)
+        bottom_layout.addWidget(self.execute_btn)
+
+        resize_main_layout.addWidget(bottom_container)
+
+        # Connexions UI
+        self.mode_switch.toggled.connect(self.toggle_resize_ui)
+        self.ratio_type_combo.currentIndexChanged.connect(self.update_ratio_ui)
+        
+        # Disconnect Preview from direct UI change (only explicit Apply now for individual Update)
+        # But we might keep preview update on Apply ?
+        # Actually logic is: UI -> Apply -> Update Stored Data -> Update Preview.
+        # So UI changes shouldn't trigger global preview update if preview depends on stored data.
+        # However, it might be nice to preview "what if" ? 
+        # User said: "Settings reset when selection changes". "Only selected files taken charge by right column".
+        # Let's remove direct connection to update_resize_preview from UI widgets.
+        
+        # Tab Change Listener
+        self.tabs.currentChanged.connect(self.on_tab_changed)
 
         # --- Onglet 3: Compression ---
         self.compression_tab = QWidget()
@@ -818,21 +1349,25 @@ class TextureCleaner(QMainWindow):
             # Vérifier si dans le dossier
             is_in_folder = any(f['name'].lower() == img_name for f in self.folder_files)
             
-            item = QLabel(f"{'🟢' if is_in_folder else '🔵'} {img_name}")
+            # Créer un bouton cliquable pour afficher l'usage
+            item = QPushButton(f"{'🟢' if is_in_folder else '🔵'} {img_name}")
             item.setStyleSheet("""
-                QLabel {
+                QPushButton {
                     background-color: #0f3460;
                     border-radius: 6px;
                     padding: 10px;
                     margin: 2px;
                     color: #f1f1f1;
                     border: 1px solid #533483;
+                    text-align: left;
                 }
-                QLabel:hover {
+                QPushButton:hover {
                     background-color: #16213e;
                     border: 1px solid #e94560;
+                    cursor: pointer;
                 }
             """)
+            item.clicked.connect(lambda checked, name=img_name: self.show_usage_popup(name))
             self.source_list_layout.addWidget(item)
         
         self.source_list_layout.addStretch()
@@ -933,6 +1468,46 @@ class TextureCleaner(QMainWindow):
     def on_thumbnail_preloaded(self, path, image):
         """Callback de préchargement"""
         self.thumbnail_cache[path] = image
+
+    def find_image_usage(self, image_name):
+        """Trouve les fichiers et lignes où l'image est utilisée"""
+        usage_data = {}
+        
+        for source_file in self.imported_source_files:
+            file_path = source_file.get('filePath')
+            if file_path and os.path.exists(file_path):
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                        file_matches = []
+                        for i, line in enumerate(lines):
+                            if image_name.lower() in line.lower():
+                                file_matches.append((i + 1, line.strip()))
+                        
+                        if file_matches:
+                            usage_data[file_path] = file_matches
+                except Exception as e:
+                    print(f"Erreur lecture {file_path}: {e}")
+        
+        return usage_data
+
+    def show_usage_popup(self, image_name):
+        """Affiche une popup avec les endroits où l'image est utilisée"""
+        # Récupère juste les chemins de fichiers concernés
+        # Mais AdvancedUsageDialog attend un dict.
+        # find_image_usage retourne déjà un dict {file: [matches]}.
+        # On va le réutiliser même si on affiche tout le fichier.
+        # Les "matches" dans le dict ne seront pas forcément utilisés pour le highlight (on refait le find live),
+        # mais ça permet de filtrer quels fichiers contiennent l'image.
+        
+        usage_data = self.find_image_usage(image_name)
+        
+        if not usage_data:
+            QMessageBox.information(self, "Info", f"Aucune utilisation trouvée pour {image_name}")
+            return
+
+        dialog = AdvancedUsageDialog(usage_data, image_name, self)
+        dialog.exec()
 
     def show_modal(self, modal_type):
         """Affiche une fenêtre modale avec les miniatures"""
@@ -1330,6 +1905,394 @@ class TextureCleaner(QMainWindow):
             }
         """)
         dialog.exec()
+
+    # --- Gestion Onglet Resize ---
+    
+    def on_tab_changed(self, index):
+        """Gestion du changement d'onglet"""
+        if index == 1: # Onglet Resize
+            # Si aucun dossier spécifique n'est défini pour resize, 
+            # on prend celui du cleaner si disponible
+            if not self.resize_folder_path and self.current_folder_path:
+                self.resize_folder_path = self.current_folder_path
+                self.populate_resize_list()
+            elif self.resize_folder_path:
+                # Si déjà un dossier, on rafraichit au cas où
+                if self.resize_table.rowCount() == 0:
+                    self.populate_resize_list()
+            
+    def select_resize_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Sélectionner dossier pour redimensionnement")
+        if folder:
+            self.resize_folder_path = folder
+            self.populate_resize_list()
+            
+    def refresh_resize_list(self):
+        self.populate_resize_list()
+            
+    def populate_resize_list(self):
+        """Remplit la liste des fichiers pour l'onglet Resize"""
+        self.resize_table.setRowCount(0)
+        
+        if not self.resize_folder_path or not os.path.exists(self.resize_folder_path):
+             return
+             
+        # Récupérer les images
+        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp', '.tiff', '.tif']
+        files_found = []
+        
+        for root, dirs, files in os.walk(self.resize_folder_path):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in image_extensions:
+                    full_path = os.path.join(root, file)
+                    files_found.append(full_path)
+        
+        self.resize_table.setRowCount(len(files_found))
+        
+        # Afficher dans la liste avec détails
+        for i, path in enumerate(files_found):
+            try:
+                # Lire dimensions sans charger toute l'image
+                reader = QImageReader(path)
+                size = reader.size()
+                file_size = os.path.getsize(path)
+                
+                # Colonne 1: Nom
+                item_name = QTableWidgetItem(os.path.basename(path))
+                item_name.setData(Qt.ItemDataRole.UserRole, path)
+                item_name.setData(Qt.ItemDataRole.UserRole + 1, size.width()) # Storing original width
+                item_name.setData(Qt.ItemDataRole.UserRole + 2, size.height()) # Storing original height
+                item_name.setData(Qt.ItemDataRole.UserRole + 3, file_size) # Storing original size
+                self.resize_table.setItem(i, 0, item_name)
+                
+                # Colonne 2: Dimensions init
+                item_dim = QTableWidgetItem(f"{size.width()}x{size.height()} px")
+                self.resize_table.setItem(i, 1, item_dim)
+                
+                # Colonne 3: Poids init
+                item_size = QTableWidgetItem(ImageThumbnail.format_file_size(file_size))
+                self.resize_table.setItem(i, 2, item_size)
+                
+            except Exception as e:
+                print(f"Erreur lecture {path}: {e}")
+                
+        # Lancer la prévisualisation initiale
+        self.update_resize_preview()
+
+        
+    def toggle_all_checkboxes(self, checked):
+        """Coche ou décoche toutes les lignes"""
+        count = self.resize_table.rowCount()
+        for i in range(count):
+            item = self.resize_table.item(i, 0)
+            if item:
+                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+
+    def open_image_popup_from_table(self, row, col):
+        """Ouvre un popup avec l'image au clic"""
+        # Récupère le path depuis la première colonne
+        item = self.resize_table.item(row, 0)
+        path = item.data(Qt.ItemDataRole.UserRole)
+        name = item.text()
+        file_size = item.data(Qt.ItemDataRole.UserRole + 3)
+        
+        self.show_modal([path])
+
+    def toggle_resize_ui(self, is_ratio):
+        """Active/Désactive les sections selon le mode Switch"""
+        # is_ratio est passé par le signal toggled (True=Left/Ratio)
+        
+        self.ratio_options_frame.setEnabled(is_ratio)
+        self.ratio_options_frame.setVisible(is_ratio)
+        
+        self.fixed_options_frame.setEnabled(not is_ratio)
+        self.fixed_options_frame.setVisible(not is_ratio)
+        
+        # Note: Plus besoin de gérer les labels manuellement, le widget le fait
+        
+        self.update_resize_preview()
+
+    def update_ratio_ui(self):
+        """Met à jour l'interface des options de ratio"""
+        idx = self.ratio_type_combo.currentIndex()
+        if idx == 0: # Pourcentage
+            self.ratio_value_spin.setSuffix(" %")
+            self.ratio_value_spin.setRange(1, 100)
+            self.ratio_value_spin.setValue(50)
+        else: # Largeur ou Hauteur
+            self.ratio_value_spin.setSuffix(" px")
+            self.ratio_value_spin.setRange(1, 10000)
+            self.ratio_value_spin.setValue(1024)
+        self.update_resize_preview()
+
+    def apply_settings_to_selection(self):
+        """Applique les réglages de l'interface aux fichiers sélectionnés"""
+        selected_items = self.resize_table.selectedItems()
+        if not selected_items:
+            return
+            
+        # Get UI Values
+        is_ratio = self.mode_switch.is_left_active()
+        ratio_mode = self.ratio_type_combo.currentIndex()
+        val = self.ratio_value_spin.value()
+        fix_w = self.fixed_width_spin.value()
+        fix_h = self.fixed_height_spin.value()
+        
+        # Apply to unique rows of selection
+        rows = set(item.row() for item in selected_items)
+        for row in rows:
+            item = self.resize_table.item(row, 0)
+            item.setData(Qt.ItemDataRole.UserRole + 10, is_ratio)
+            item.setData(Qt.ItemDataRole.UserRole + 11, ratio_mode)
+            item.setData(Qt.ItemDataRole.UserRole + 12, val)
+            item.setData(Qt.ItemDataRole.UserRole + 13, fix_w)
+            item.setData(Qt.ItemDataRole.UserRole + 14, fix_h)
+            
+        # Update Preview
+        self.update_resize_preview()
+
+    def reset_resize_options_ui(self):
+        """Réinitialise les réglages UI (visuel seulement) lors du changement de sélection"""
+        # On remet les défauts pour que l'utilisateur reparte de zéro ou neutre
+        # Le User a demandé: "Quand on change la sélection les réglage se réinitialise"
+        self.mode_switch.btn_left.click() # Ratio
+        self.ratio_type_combo.setCurrentIndex(0)
+        self.ratio_value_spin.setValue(50)
+        self.fixed_width_spin.setValue(1024)
+        self.fixed_height_spin.setValue(1024)
+
+    def update_resize_preview(self):
+        """Met à jour le tableau avec les prévisions basées sur les données STOCKÉES par item"""
+        count = self.resize_table.rowCount()
+        if count == 0:
+            return
+
+        total_orig_size = 0
+        total_new_size = 0
+
+        for i in range(count):
+            item_name = self.resize_table.item(i, 0)
+            if not item_name: continue
+            
+            # Récupérer données image
+            orig_w = item_name.data(Qt.ItemDataRole.UserRole + 1)
+            orig_h = item_name.data(Qt.ItemDataRole.UserRole + 2)
+            orig_file_size = item_name.data(Qt.ItemDataRole.UserRole + 3)
+            
+            if orig_w is None: continue 
+            
+            # Récupérer données REGLAGES (Item specific)
+            is_ratio = item_name.data(Qt.ItemDataRole.UserRole + 10)
+            ratio_mode = item_name.data(Qt.ItemDataRole.UserRole + 11)
+            val = item_name.data(Qt.ItemDataRole.UserRole + 12)
+            fix_w = item_name.data(Qt.ItemDataRole.UserRole + 13)
+            fix_h = item_name.data(Qt.ItemDataRole.UserRole + 14)
+            
+            # Default fallback (si loading async pas fini par ex, ou bug)
+            if is_ratio is None: is_ratio = True
+            if ratio_mode is None: ratio_mode = 0
+            if val is None: val = 50
+            if fix_w is None: fix_w = 1024
+            if fix_h is None: fix_h = 1024
+            
+            total_orig_size += orig_file_size
+            
+            new_w, new_h = 0, 0
+            
+            if is_ratio:
+                if ratio_mode == 0: # %
+                    scale = val / 100.0
+                    new_w = int(orig_w * scale)
+                    new_h = int(orig_h * scale)
+                elif ratio_mode == 1: # Largeur fixe
+                    new_w = val
+                    if orig_w > 0:
+                        new_h = int(orig_h * (val / orig_w))
+                elif ratio_mode == 2: # Hauteur fixe
+                    new_h = val
+                    if orig_h > 0:
+                        new_w = int(orig_w * (val / orig_h))
+            else: # Dimensions libres
+                new_w = fix_w
+                new_h = fix_h
+            
+            # Estimation Poids
+            orig_pixels = orig_w * orig_h
+            new_pixels = new_w * new_h
+            if orig_pixels > 0:
+                est_file_size = orig_file_size * (new_pixels / orig_pixels)
+            else:
+                est_file_size = orig_file_size
+            
+            total_new_size += est_file_size
+            
+            # Mise à jour UI Tableau
+            # Col 2: Dimensions
+            item_dim = self.resize_table.item(i, 1)
+            item_dim.setText(f"{orig_w}x{orig_h} ➜ {new_w}x{new_h}")
+            
+            # Col 3: Poids
+            item_size = self.resize_table.item(i, 2)
+            orig_fmt = ImageThumbnail.format_file_size(orig_file_size)
+            new_fmt = ImageThumbnail.format_file_size(est_file_size)
+            item_size.setText(f"{orig_fmt} ➜ ~{new_fmt}")
+            
+            # Couleur verte si réduction
+            if est_file_size < orig_file_size:
+                item_size.setForeground(Qt.GlobalColor.green)
+                item_dim.setForeground(Qt.GlobalColor.green)
+            else:
+                item_size.setForeground(Qt.GlobalColor.white)
+                item_dim.setForeground(Qt.GlobalColor.white)
+        
+        # Mise à jour Stats Globales
+        gain = total_orig_size - total_new_size
+        pct_gain = (gain / total_orig_size * 100) if total_orig_size > 0 else 0
+        
+        self.global_stats_label.setText(
+            f"Poids Total : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
+            f"| Gain : {ImageThumbnail.format_file_size(gain)} ({pct_gain:.1f}%)"
+        )
+        if gain > 0:
+            self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4caf50; padding: 5px;")
+        else:
+             self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f1f1; padding: 5px;")
+
+
+    def execute_resize(self):
+        """Lance le processus de redimensionnement"""
+        count = self.resize_table.rowCount()
+        if count == 0:
+            QMessageBox.warning(self, "Attention", "Aucune image à traiter.")
+            return
+
+        # Identification des fichiers à traiter (Via Checkboxes)
+        rows_to_process = []
+        for i in range(count):
+            item = self.resize_table.item(i, 0)
+            if item.checkState() == Qt.CheckState.Checked:
+                rows_to_process.append(i)
+        
+        if not rows_to_process:
+             QMessageBox.warning(self, "Attention", "Aucune image sélectionnée.")
+             return
+            
+        selection_msg = f"les {len(rows_to_process)} images cochées"
+
+        # Dialogue choix destination
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Lancer l'optimisation")
+        msg_box.setText(f"Vous allez traiter {selection_msg}.\nComment voulez-vous sauvegarder ?")
+        msg_box.setStyleSheet("background-color: #1a1a2e; color: white;")
+        
+        btn_overwrite = msg_box.addButton("Écraser les fichiers existants", QMessageBox.ButtonRole.DestructiveRole)
+        btn_new_folder = msg_box.addButton("Créer dans un nouveau dossier...", QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg_box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+        
+        msg_box.exec()
+        
+        clicked_button = msg_box.clickedButton()
+        
+        if clicked_button == btn_cancel:
+            return
+            
+        target_folder = None
+        overwrite = False
+        
+        if clicked_button == btn_overwrite:
+            confirm = QMessageBox.question(self, "Confirmation ultime", "Êtes-vous SÛR de vouloir écraser les fichiers originaux ?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if confirm != QMessageBox.StandardButton.Yes:
+                return
+            overwrite = True
+        elif clicked_button == btn_new_folder:
+            target_folder = QFileDialog.getExistingDirectory(self, "Choisir le dossier de destination")
+            if not target_folder:
+                return
+        
+        # Paramètres
+        is_ratio = self.mode_switch.is_left_active()
+        ratio_mode = self.ratio_type_combo.currentIndex()
+        val = self.ratio_value_spin.value()
+        fix_w = self.fixed_width_spin.value()
+        fix_h = self.fixed_height_spin.value()
+        
+        # Barre de progression
+        progress = QDialog(self)
+        progress.setWindowTitle("Traitement en cours...")
+        progress.setFixedSize(300, 100)
+        progress_layout = QVBoxLayout()
+        p_bar = QProgressBar()
+        progress_layout.addWidget(QLabel("Optimisation des textures..."))
+        progress_layout.addWidget(p_bar)
+        progress.setLayout(progress_layout)
+        progress.show()
+        
+        success_count = 0
+        error_count = 0
+            
+        p_bar.setRange(0, len(rows_to_process))
+        
+        for i, row_idx in enumerate(rows_to_process):
+            item_name = self.resize_table.item(row_idx, 0)
+            path = item_name.data(Qt.ItemDataRole.UserRole)
+            
+            if not path or not os.path.exists(path):
+                continue
+                
+            try:
+                # Chargement
+                img = QImage(path)
+                if img.isNull():
+                    error_count += 1
+                    continue
+                    
+                orig_w, orig_h = img.width(), img.height()
+                new_w, new_h = 0, 0
+                
+                # Calcul dimensions
+                if is_ratio:
+                    if ratio_mode == 0: # %
+                        scale = val / 100.0
+                        new_w = int(orig_w * scale)
+                        new_h = int(orig_h * scale)
+                    elif ratio_mode == 1: # Largeur fixe
+                        new_w = val
+                        if orig_w > 0:
+                            new_h = int(orig_h * (val / orig_w))
+                    elif ratio_mode == 2: # Hauteur fixe
+                        new_h = val
+                        if orig_h > 0:
+                            new_w = int(orig_w * (val / orig_h))
+                else: # Dimensions libres
+                    new_w = fix_w
+                    new_h = fix_h
+                
+                # Redimensionnement
+                if new_w > 0 and new_h > 0:
+                    scaled_img = img.scaled(new_w, new_h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    
+                    # Sauvegarde
+                    save_path = path if overwrite else os.path.join(target_folder, os.path.basename(path))
+                    scaled_img.save(save_path)
+                    success_count += 1
+                else:
+                    error_count += 1
+
+            except Exception as e:
+                print(f"Erreur resize {path}: {e}")
+                error_count += 1
+            
+            p_bar.setValue(i + 1)
+            QApplication.processEvents()
+            
+        progress.close()
+        
+        QMessageBox.information(self, "Terminé", f"Traitement terminé.\nSuccès: {success_count}\nErreurs: {error_count}")
+        
+        # Refresh si overwrite
+        if overwrite:
+            self.refresh_resize_list()
 
 
 def main():
