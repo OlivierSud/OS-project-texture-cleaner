@@ -688,18 +688,31 @@ class TextureCleaner(QMainWindow):
         
         left_layout.addLayout(folder_layout)
         
-        # Select All / Deselect All
-        select_layout = QHBoxLayout()
-        self.select_all_cb = QCheckBox("Tout sélectionner")
-        self.select_all_cb.setChecked(True)
-        self.select_all_cb.setStyleSheet("color: #00d9ff; font-weight: bold;")
-        self.select_all_cb.toggled.connect(self.toggle_all_checkboxes)
-        select_layout.addWidget(self.select_all_cb)
-        select_layout.addStretch()
-        left_layout.addLayout(select_layout)
-        
         # Tableau des fichiers (Remplace QListWidget)
         self.resize_table = QTableWidget()
+
+        # Recherche et Filtres
+        search_filter_layout = QHBoxLayout()
+        
+        self.resize_search = QLineEdit()
+        self.resize_search.setPlaceholderText("🔍 Rechercher une texture...")
+        self.resize_search.textChanged.connect(self.filter_resize_table)
+        search_filter_layout.addWidget(self.resize_search, 2)
+        
+        self.resize_filter_group = QButtonGroup()
+        filters = [("Tous", "all"), ("🟢 Associé", "prepared"), ("⚪ Invariable", "remaining")]
+        for i, (label, value) in enumerate(filters):
+            radio = QRadioButton(label)
+            radio.setProperty("filter_value", value)
+            radio.toggled.connect(self.filter_resize_table)
+            self.resize_filter_group.addButton(radio, i)
+            search_filter_layout.addWidget(radio)
+            if value == "all":
+                radio.setChecked(True)
+        
+        left_layout.addLayout(search_filter_layout)
+        
+        # Déjà initialisé plus haut
         self.resize_table.setColumnCount(3)
         self.resize_table.setHorizontalHeaderLabels(["Fichier", "Dimensions (Av. > Ap.)", "Poids (Av. > Ap.)"])
         
@@ -1964,6 +1977,7 @@ class TextureCleaner(QMainWindow):
                 item_name.setData(Qt.ItemDataRole.UserRole + 1, size.width()) # Storing original width
                 item_name.setData(Qt.ItemDataRole.UserRole + 2, size.height()) # Storing original height
                 item_name.setData(Qt.ItemDataRole.UserRole + 3, file_size) # Storing original size
+                # Pas de réglages par défaut (UserRole + 10 restera None)
                 self.resize_table.setItem(i, 0, item_name)
                 
                 # Colonne 2: Dimensions init
@@ -1979,15 +1993,39 @@ class TextureCleaner(QMainWindow):
                 
         # Lancer la prévisualisation initiale
         self.update_resize_preview()
+        self.filter_resize_table()
 
+    def filter_resize_table(self):
+        """Filtre les lignes du tableau selon la recherche et le statut"""
+        if not hasattr(self, 'resize_table'):
+            return
+            
+        search_text = self.resize_search.text().lower()
         
-    def toggle_all_checkboxes(self, checked):
-        """Coche ou décoche toutes les lignes"""
-        count = self.resize_table.rowCount()
-        for i in range(count):
-            item = self.resize_table.item(i, 0)
-            if item:
-                item.setCheckState(Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked)
+        active_filter = "all"
+        for btn in self.resize_filter_group.buttons():
+            if btn.isChecked():
+                active_filter = btn.property("filter_value")
+                break
+        
+        for i in range(self.resize_table.rowCount()):
+            item_name = self.resize_table.item(i, 0)
+            if not item_name: continue
+            
+            name = item_name.text().lower()
+            is_associated = item_name.data(Qt.ItemDataRole.UserRole + 10) is not None
+            
+            # Match recherche
+            match_search = not search_text or search_text in name
+            
+            # Match filtre
+            match_filter = True
+            if active_filter == "prepared":
+                match_filter = is_associated
+            elif active_filter == "remaining":
+                match_filter = not is_associated
+                
+            self.resize_table.setRowHidden(i, not (match_search and match_filter))
 
     def open_image_popup_from_table(self, row, col):
         """Ouvre un popup avec l'image au clic"""
@@ -1995,9 +2033,8 @@ class TextureCleaner(QMainWindow):
         item = self.resize_table.item(row, 0)
         path = item.data(Qt.ItemDataRole.UserRole)
         name = item.text()
-        file_size = item.data(Qt.ItemDataRole.UserRole + 3)
         
-        self.show_modal([path])
+        self.show_image_preview(path, name)
 
     def toggle_resize_ui(self, is_ratio):
         """Active/Désactive les sections selon le mode Switch"""
@@ -2051,16 +2088,18 @@ class TextureCleaner(QMainWindow):
             
         # Update Preview
         self.update_resize_preview()
+        self.filter_resize_table()
 
     def reset_resize_options_ui(self):
         """Réinitialise les réglages UI (visuel seulement) lors du changement de sélection"""
-        # On remet les défauts pour que l'utilisateur reparte de zéro ou neutre
-        # Le User a demandé: "Quand on change la sélection les réglage se réinitialise"
-        self.mode_switch.btn_left.click() # Ratio
-        self.ratio_type_combo.setCurrentIndex(0)
-        self.ratio_value_spin.setValue(50)
-        self.fixed_width_spin.setValue(1024)
-        self.fixed_height_spin.setValue(1024)
+        # Note: Désactivé temporairement car cela empêche de régler les options 
+        # AVANT de sélectionner les fichiers à qui les appliquer.
+        pass
+        # self.mode_switch.btn_left.click() # Ratio
+        # self.ratio_type_combo.setCurrentIndex(0)
+        # self.ratio_value_spin.setValue(50)
+        # self.fixed_width_spin.setValue(1024)
+        # self.fixed_height_spin.setValue(1024)
 
     def update_resize_preview(self):
         """Met à jour le tableau avec les prévisions basées sur les données STOCKÉES par item"""
@@ -2073,6 +2112,8 @@ class TextureCleaner(QMainWindow):
 
         for i in range(count):
             item_name = self.resize_table.item(i, 0)
+            item_dim = self.resize_table.item(i, 1)
+            item_size = self.resize_table.item(i, 2)
             if not item_name: continue
             
             # Récupérer données image
@@ -2084,17 +2125,20 @@ class TextureCleaner(QMainWindow):
             
             # Récupérer données REGLAGES (Item specific)
             is_ratio = item_name.data(Qt.ItemDataRole.UserRole + 10)
+            
+            # Si aucun réglage n'est associé (None), on affiche en blanc/normal
+            if is_ratio is None:
+                item_name.setForeground(Qt.GlobalColor.white)
+                item_dim.setForeground(Qt.GlobalColor.white)
+                item_size.setForeground(Qt.GlobalColor.white)
+                item_dim.setText(f"{orig_w}x{orig_h} px")
+                item_size.setText(ImageThumbnail.format_file_size(orig_file_size))
+                continue
+
             ratio_mode = item_name.data(Qt.ItemDataRole.UserRole + 11)
             val = item_name.data(Qt.ItemDataRole.UserRole + 12)
             fix_w = item_name.data(Qt.ItemDataRole.UserRole + 13)
             fix_h = item_name.data(Qt.ItemDataRole.UserRole + 14)
-            
-            # Default fallback (si loading async pas fini par ex, ou bug)
-            if is_ratio is None: is_ratio = True
-            if ratio_mode is None: ratio_mode = 0
-            if val is None: val = 50
-            if fix_w is None: fix_w = 1024
-            if fix_h is None: fix_h = 1024
             
             total_orig_size += orig_file_size
             
@@ -2129,33 +2173,40 @@ class TextureCleaner(QMainWindow):
             
             # Mise à jour UI Tableau
             # Col 2: Dimensions
-            item_dim = self.resize_table.item(i, 1)
             item_dim.setText(f"{orig_w}x{orig_h} ➜ {new_w}x{new_h}")
             
             # Col 3: Poids
-            item_size = self.resize_table.item(i, 2)
             orig_fmt = ImageThumbnail.format_file_size(orig_file_size)
             new_fmt = ImageThumbnail.format_file_size(est_file_size)
             item_size.setText(f"{orig_fmt} ➜ ~{new_fmt}")
             
-            # Couleur verte si réduction
+            # Couleur dynamique
             if est_file_size < orig_file_size:
-                item_size.setForeground(Qt.GlobalColor.green)
-                item_dim.setForeground(Qt.GlobalColor.green)
+                # Réduction
+                color = Qt.GlobalColor.green
+            elif est_file_size > orig_file_size:
+                # Augmentation
+                color = Qt.GlobalColor.red
             else:
-                item_size.setForeground(Qt.GlobalColor.white)
-                item_dim.setForeground(Qt.GlobalColor.white)
+                # Identique
+                color = Qt.GlobalColor.white
+
+            item_name.setForeground(color)
+            item_dim.setForeground(color)
+            item_size.setForeground(color)
         
         # Mise à jour Stats Globales
         gain = total_orig_size - total_new_size
         pct_gain = (gain / total_orig_size * 100) if total_orig_size > 0 else 0
         
         self.global_stats_label.setText(
-            f"Poids Total : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
+            f"Fichiers à traiter : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
             f"| Gain : {ImageThumbnail.format_file_size(gain)} ({pct_gain:.1f}%)"
         )
         if gain > 0:
             self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4caf50; padding: 5px;")
+        elif gain < 0:
+            self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f44336; padding: 5px;")
         else:
              self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f1f1; padding: 5px;")
 
@@ -2167,18 +2218,18 @@ class TextureCleaner(QMainWindow):
             QMessageBox.warning(self, "Attention", "Aucune image à traiter.")
             return
 
-        # Identification des fichiers à traiter (Via Checkboxes)
+        # Identification des fichiers à traiter (Ceux qui ont des réglages associés)
         rows_to_process = []
         for i in range(count):
             item = self.resize_table.item(i, 0)
-            if item.checkState() == Qt.CheckState.Checked:
+            if item.data(Qt.ItemDataRole.UserRole + 10) is not None:
                 rows_to_process.append(i)
         
         if not rows_to_process:
-             QMessageBox.warning(self, "Attention", "Aucune image sélectionnée.")
+             QMessageBox.warning(self, "Attention", "Aucun réglage n'a été associé. Cliquez sur 'Associer ces réglages à la sélection' pour préparer les fichiers.")
              return
-            
-        selection_msg = f"les {len(rows_to_process)} images cochées"
+             
+        selection_msg = f"les {len(rows_to_process)} images préparées"
 
         # Dialogue choix destination
         msg_box = QMessageBox(self)
@@ -2240,6 +2291,21 @@ class TextureCleaner(QMainWindow):
             if not path or not os.path.exists(path):
                 continue
                 
+            # Récupérer les réglages SPÉCIFIQUES à cet item
+            is_ratio = item_name.data(Qt.ItemDataRole.UserRole + 10)
+            ratio_mode = item_name.data(Qt.ItemDataRole.UserRole + 11)
+            val = item_name.data(Qt.ItemDataRole.UserRole + 12)
+            fix_w = item_name.data(Qt.ItemDataRole.UserRole + 13)
+            fix_h = item_name.data(Qt.ItemDataRole.UserRole + 14)
+            
+            # Fallback si non défini (auto-apply current UI values if item wasn't explicitly associated)
+            if is_ratio is None:
+                is_ratio = self.mode_switch.is_left_active()
+                ratio_mode = self.ratio_type_combo.currentIndex()
+                val = self.ratio_value_spin.value()
+                fix_w = self.fixed_width_spin.value()
+                fix_h = self.fixed_height_spin.value()
+
             try:
                 # Chargement
                 img = QImage(path)
