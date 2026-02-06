@@ -26,6 +26,28 @@ from PyQt6.QtGui import (
 )
 import ctypes
 
+# Configuration du style Blender
+STYLE_CONFIG = {
+    "bg_main": "#282828",
+    "bg_panel": "#3d3d3d",
+    "bg_button": "#4a4a4a",   # Plus de contraste pour les boutons
+    "bg_input": "#1d1d1d",
+    "accent": "#f09000",      # Orange Blender
+    "accent_hover": "#ff9e15",
+    "selection": "#4772b3",   # Bleu Blender (Utilisé seulement pour sélection de texte/items)
+    "text_main": "#cfcfcf",
+    "text_highlight": "#ffffff",
+    "border": "#1d1d1d",
+    "border_light": "#555555",
+    "status_red": "#ff4d4d",
+    "status_green": "#4deb4d",
+    "status_orange": "#f09000",
+    "font_family": "'Inter', 'Segoe UI', 'Roboto', 'Helvetica', sans-serif",
+    "font_size": "12px",
+    "font_size_small": "11px",
+    "font_size_large": "14px"
+}
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
     try:
@@ -130,19 +152,21 @@ class ImageThumbnail(QFrame):
         
         # Bouton de suppression
         if show_delete:
-            self.delete_btn = QPushButton("🟦 Non Marqué")
-            self.delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #65bdcf;
-                    color: white;
-                    border: none;
-                    padding: 5px;
-                    border-radius: 5px;
+            self.delete_btn = QPushButton(" [ ] ")
+            self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.delete_btn.setToolTip("Mark for deletion")
+            self.delete_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_button']};
+                    color: {STYLE_CONFIG['text_main']};
+                    border: 1px solid {STYLE_CONFIG['border']};
+                    padding: 4px;
+                    border-radius: 4px;
                     font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: #d32f2f;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['border_light']};
+                }}
             """)
             self.delete_btn.clicked.connect(self.toggle_delete_mark)
             layout.addWidget(self.delete_btn)
@@ -197,40 +221,40 @@ class ImageThumbnail(QFrame):
     def toggle_delete_mark(self):
         self.marked_for_deletion = not self.marked_for_deletion
         if self.marked_for_deletion:
-            self.delete_btn.setText("✅ Marqué")
-            self.delete_btn.setStyleSheet("""
-                QPushButton {
+            self.delete_btn.setText(" [X] ")
+            self.delete_btn.setStyleSheet(f"""
+                QPushButton {{
                     background-color: #db3d21;
                     color: white;
-                    border: none;
-                    padding: 5px;
-                    border-radius: 5px;
+                    border: 1px solid {STYLE_CONFIG['border']};
+                    padding: 4px;
+                    border-radius: 4px;
                     font-size: 11px;
-                }
+                }}
             """)
         else:
-            self.delete_btn.setText("🟦 Non Marqué")
-            self.delete_btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #65bdcf;
-                    color: white;
-                    border: none;
-                    padding: 5px;
-                    border-radius: 5px;
+            self.delete_btn.setText(" [ ] ")
+            self.delete_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_button']};
+                    color: {STYLE_CONFIG['text_main']};
+                    border: 1px solid {STYLE_CONFIG['border']};
+                    padding: 4px;
+                    border-radius: 4px;
                     font-size: 11px;
-                }
-                QPushButton:hover {
-                    background-color: #d32f2f;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['border_light']};
+                }}
             """)
         self.update_style()
         self.deleteRequested.emit(self.file_path)
     
     def update_style(self):
         if self.marked_for_deletion:
-            self.setStyleSheet("QFrame { background-color: #3e3e5e; opacity: 0.5; border: 2px solid #f44336; border-radius: 8px; }")
+            self.setStyleSheet(f"QFrame {{ background-color: #4d2b2b; border: 1px solid {STYLE_CONFIG['accent']}; border-radius: 4px; }}")
         else:
-            self.setStyleSheet("QFrame { background-color: #16213e; border: 2px solid #533483; border-radius: 8px; }")
+            self.setStyleSheet(f"QFrame {{ background-color: {STYLE_CONFIG['bg_panel']}; border: 1px solid {STYLE_CONFIG['border']}; border-radius: 4px; }}")
     
     @staticmethod
     def format_file_size(bytes_size):
@@ -296,51 +320,24 @@ class SegmentedToggle(QFrame):
         return self.btn_left.isChecked()
 
     def update_style(self):
-        # Style inspiré de l'image (Green / Dark)
-        active_style = """
-            background-color: #00d9ff; 
-            color: #1a1a2e; 
-            font-weight: bold;
-            border: 1px solid #00d9ff;
-        """
-        inactive_style = """
-            background-color: #333333; 
-            color: #888888; 
-            font-weight: normal;
-            border: 1px solid #555555;
-        """
+        active_style = f"background-color: {STYLE_CONFIG['accent']}; color: black; font-weight: bold; border: 1px solid {STYLE_CONFIG['border']};"
+        inactive_style = f"background-color: {STYLE_CONFIG['bg_input']}; color: {STYLE_CONFIG['text_main']}; border: 1px solid {STYLE_CONFIG['border']};"
+        
+        base = "QPushButton { padding: 4px; font-size: 11px;"
         
         # Left button styling
-        base_left = """
-            QPushButton {
-                border-top-left-radius: 20px;
-                border-bottom-left-radius: 20px;
-                font-size: 14px;
-                padding: 5px;
-        """
+        style_left = base + "border-top-left-radius: 10px; border-bottom-left-radius: 10px;"
         if self.btn_left.isChecked():
-            self.btn_left.setStyleSheet(base_left + active_style + "}")
+            self.btn_left.setStyleSheet(style_left + active_style + "}")
         else:
-            self.btn_left.setStyleSheet(base_left + inactive_style + "}")
+            self.btn_left.setStyleSheet(style_left + inactive_style + "}")
             
         # Right button styling
-        base_right = """
-            QPushButton {
-                border-top-right-radius: 20px;
-                border-bottom-right-radius: 20px;
-                font-size: 14px;
-                padding: 5px;
-        """
+        style_right = base + "border-top-right-radius: 10px; border-bottom-right-radius: 10px;"
         if self.btn_right.isChecked():
-            dim_active_style = """
-                background-color: #ff9800; 
-                color: #1a1a2e; 
-                font-weight: bold;
-                border: 1px solid #ff9800;
-            """
-            self.btn_right.setStyleSheet(base_right + dim_active_style + "}")
+            self.btn_right.setStyleSheet(style_right + active_style + "}")
         else:
-            self.btn_right.setStyleSheet(base_right + inactive_style + "}")
+            self.btn_right.setStyleSheet(style_right + inactive_style + "}")
 
 
 
@@ -348,7 +345,7 @@ class AdvancedUsageDialog(QDialog):
     def __init__(self, usage_data, image_name, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Usage de : {image_name}")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(950, 650)
         self.usage_data = usage_data
         self.image_name = image_name
         self.file_paths = list(usage_data.keys())
@@ -369,44 +366,47 @@ class AdvancedUsageDialog(QDialog):
         toolbar.setSpacing(10)
         
         # Sélecteur de fichier
-        toolbar.addWidget(QLabel("📁 Fichier :"))
+        toolbar.addWidget(QLabel("FILE :"))
         self.file_combo = QComboBox()
         for path in self.file_paths:
             self.file_combo.addItem(os.path.basename(path), path)
         self.file_combo.currentIndexChanged.connect(self.load_file)
-        self.file_combo.setStyleSheet("""
-            QComboBox {
-                background-color: #1a1a2e;
-                color: #f1f1f1;
-                border: 1px solid #533483;
-                padding: 5px;
+        self.file_combo.setStyleSheet(f"""
+            QComboBox {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                color: {STYLE_CONFIG['text_main']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                padding: 4px;
                 min-width: 200px;
-            }
+            }}
         """)
         toolbar.addWidget(self.file_combo)
         
         toolbar.addSpacing(20)
         
         # Navigation occurrences
-        self.prev_btn = QPushButton("⬆️ Précédent")
+        self.prev_btn = QPushButton("PREV")
+        self.prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.prev_btn.clicked.connect(self.prev_match)
-        self.next_btn = QPushButton("⬇️ Suivant")
+        self.next_btn = QPushButton("NEXT")
+        self.next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.next_btn.clicked.connect(self.next_match)
         self.match_label = QLabel("Occurrence : 0 / 0")
         
-        btn_style = """
-            QPushButton {
-                background-color: #533483;
-                color: white;
-                border: none;
-                padding: 5px 10px;
+        btn_style = f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_highlight']};
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                padding: 6px 12px;
                 border-radius: 4px;
-            }
-            QPushButton:hover { background-color: #6a42a8; }
+            }}
+            QPushButton:hover {{ background-color: {STYLE_CONFIG['accent']}; color: black; }}
         """
         self.prev_btn.setStyleSheet(btn_style)
         self.next_btn.setStyleSheet(btn_style)
-        self.match_label.setStyleSheet("color: #e94560; font-weight: bold;")
+        self.match_label.setStyleSheet(f"color: {STYLE_CONFIG['accent']}; font-weight: bold; font-size: 13px;")
         
         toolbar.addWidget(self.prev_btn)
         toolbar.addWidget(self.match_label)
@@ -419,21 +419,22 @@ class AdvancedUsageDialog(QDialog):
         # --- Text Editor ---
         self.text_edit = QPlainTextEdit()
         self.text_edit.setReadOnly(True)
-        self.text_edit.setStyleSheet("""
-            QPlainTextEdit {
-                background-color: #1a1a2e;
-                color: #f1f1f1;
-                border: 1px solid #533483;
-                border-radius: 5px;
-                font-family: Consolas, 'Courier New', monospace;
+        self.text_edit.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                color: {STYLE_CONFIG['text_main']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
                 font-size: 13px;
-                padding-left: 5px;
-            }
+                padding: 10px;
+            }}
         """)
         layout.addWidget(self.text_edit)
         
         # Close button
         close_btn = QPushButton("Fermer")
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         close_btn.clicked.connect(self.accept)
         close_btn.setStyleSheet(btn_style)
         layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
@@ -596,34 +597,24 @@ class TextureCleaner(QMainWindow):
         
         # Header
         header_container = QWidget()
-        header_container.setMaximumHeight(50)  # Contrainte de hauteur
-        header_layout = QHBoxLayout() # Layout horizontal
-        header_layout.setContentsMargins(10, 5, 10, 5) # Marges réduites
-        header_layout.setSpacing(10)
+        header_container.setMaximumHeight(60)
+        header_layout = QHBoxLayout()
+        header_layout.setContentsMargins(20, 0, 20, 0)
         header_container.setLayout(header_layout)
-        header_container.setStyleSheet("""
-            QWidget {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                border-radius: 8px; /* Rayon réduit */
-            }
-            QLabel {
-                background: transparent;
-                color: white;
-            }
-        """)
+        header_container.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_panel']}; border-bottom: 1px solid {STYLE_CONFIG['border']};")
         
-        header = QLabel("🖼️ 2D Texture Listing")
-        header.setStyleSheet("font-size: 16px; font-weight: bold;") # Police réduite
+        header = QLabel("TEXTURE LISTING")
+        header.setStyleSheet(f"font-size: 14px; font-weight: bold; color: {STYLE_CONFIG['accent']}; letter-spacing: 1px;")
         header_layout.addWidget(header)
         
-        subtitle = QLabel("- 1️⃣. Liste les image présente dans les sources texte - 2️⃣. Liste les image présente dans le dossier - 3️⃣. Supprime les images non référencées")
-        subtitle.setStyleSheet("font-size: 13px; color: #e0e0e0;")
+        subtitle = QLabel("Gestionnaire de textures professionnel")
+        subtitle.setStyleSheet(f"font-size: 12px; color: {STYLE_CONFIG['text_main']};")
         header_layout.addWidget(subtitle)
         
-        header_layout.addStretch() # Pousser le reste à gauche
-
+        header_layout.addStretch()
         
+        cleaner_layout.setContentsMargins(0, 0, 0, 0)
+        cleaner_layout.setSpacing(0)
         cleaner_layout.addWidget(header_container)
         
         # Splitter pour les 3 colonnes
@@ -650,10 +641,13 @@ class TextureCleaner(QMainWindow):
         
         # Layout principal vertical pour l'onglet
         resize_main_layout = QVBoxLayout()
+        resize_main_layout.setContentsMargins(8, 8, 8, 8)
+        resize_main_layout.setSpacing(4)
         self.resize_tab.setLayout(resize_main_layout)
         
         # --- Zone Haute : Colonnes et Options ---
         top_area_layout = QHBoxLayout()
+        top_area_layout.setSpacing(8)
         resize_main_layout.addLayout(top_area_layout, 1) # prend tout l'espace dispo
         
         # --- Colonne Gauche: Tableau des textures ---
@@ -662,27 +656,21 @@ class TextureCleaner(QMainWindow):
         left_col.setLayout(left_layout)
         
         # Header Colonne Gauche
-        left_header = QLabel("🖼️ Textures du projet")
-        left_header.setStyleSheet("font-size: 16px; font-weight: bold; color: #e94560;")
+        left_header = QLabel("PROJECT TEXTURES")
+        left_header.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {STYLE_CONFIG['text_highlight']}; border-bottom: 1px solid {STYLE_CONFIG['border_light']}; padding-bottom: 2px;")
         left_layout.addWidget(left_header)
         
         # Sélection dossier
         folder_layout = QHBoxLayout()
-        self.resize_folder_btn = QPushButton("📂 Sélectionner dossier cible")
-        self.resize_folder_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
-                padding: 8px;
-            }
-        """)
+        self.resize_folder_btn = QPushButton("FOLDER")
+        self.resize_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.resize_folder_btn.clicked.connect(self.select_resize_folder)
         folder_layout.addWidget(self.resize_folder_btn)
         
         refresh_resize_btn = QPushButton("🔄")
-        refresh_resize_btn.setFixedSize(35, 35)
-        refresh_resize_btn.setStyleSheet("background-color: #00d9ff; color: white; border-radius: 5px;")
+        refresh_resize_btn.setFixedSize(34, 34)
+        refresh_resize_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_resize_btn.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_button']}; color: white; border: 1px solid {STYLE_CONFIG['border_light']}; font-weight: bold; padding: 0px; font-size: 16px;")
         refresh_resize_btn.clicked.connect(self.refresh_resize_list)
         folder_layout.addWidget(refresh_resize_btn)
         
@@ -695,12 +683,12 @@ class TextureCleaner(QMainWindow):
         search_filter_layout = QHBoxLayout()
         
         self.resize_search = QLineEdit()
-        self.resize_search.setPlaceholderText("🔍 Rechercher une texture...")
+        self.resize_search.setPlaceholderText("Search textures...")
         self.resize_search.textChanged.connect(self.filter_resize_table)
         search_filter_layout.addWidget(self.resize_search, 2)
         
         self.resize_filter_group = QButtonGroup()
-        filters = [("Tous", "all"), ("🟢 Associé", "prepared"), ("⚪ Invariable", "remaining")]
+        filters = [("All", "all"), ("🟢Prepared", "prepared"), ("​⚪Unchanged", "remaining")]
         for i, (label, value) in enumerate(filters):
             radio = QRadioButton(label)
             radio.setProperty("filter_value", value)
@@ -714,32 +702,9 @@ class TextureCleaner(QMainWindow):
         
         # Déjà initialisé plus haut
         self.resize_table.setColumnCount(3)
-        self.resize_table.setHorizontalHeaderLabels(["Fichier", "Dimensions (Av. > Ap.)", "Poids (Av. > Ap.)"])
+        self.resize_table.setHorizontalHeaderLabels(["File", "Dimensions (Old > New)", "Weight (Old > New)"])
         
-        # Config tableau style
-        self.resize_table.setStyleSheet("""
-            QTableWidget {
-                background-color: #1a1a2e;
-                color: #f1f1f1;
-                gridline-color: #533483;
-                border: 1px solid #533483;
-                border-radius: 8px;
-            }
-            QHeaderView::section {
-                background-color: #0f3460;
-                color: white;
-                padding: 5px;
-                border: none;
-                font-weight: bold;
-            }
-            QTableWidget::item {
-                padding: 5px;
-            }
-            QTableWidget::item:selected {
-                background-color: #e94560;
-                color: white;
-            }
-        """)
+        # Config tableau style handled by global QSS
         self.resize_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.resize_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.resize_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
@@ -753,7 +718,7 @@ class TextureCleaner(QMainWindow):
         top_area_layout.addWidget(left_col, 2) # Plus large que les options
         
         # --- Colonne Droite: Options ---
-        right_col = QGroupBox("🛠️ Options")
+        right_col = QGroupBox("ACTION SETTINGS")
         right_layout = QVBoxLayout()
         right_col.setLayout(right_layout)
         
@@ -762,7 +727,7 @@ class TextureCleaner(QMainWindow):
         switch_layout.addStretch()
         
         # Instantiation du Toggle Switch
-        self.mode_switch = SegmentedToggle("🔒 Ratio Fixe", "🔓 Dimensions", self)
+        self.mode_switch = SegmentedToggle("RATIO", "FIXED", self)
         
         switch_layout.addWidget(self.mode_switch)
         switch_layout.addStretch()
@@ -776,7 +741,7 @@ class TextureCleaner(QMainWindow):
         self.ratio_options_frame.setLayout(ratio_layout)
         
         self.ratio_type_combo = QComboBox()
-        self.ratio_type_combo.addItems(["Pourcentage de réduction", "Largeur fixe (Hauteur auto)", "Hauteur fixe (Largeur auto)"])
+        self.ratio_type_combo.addItems(["Reduction Percentage", "Fixed Width (Auto H)", "Fixed Height (Auto W)"])
         ratio_layout.addWidget(self.ratio_type_combo)
         
         self.ratio_value_spin = QSpinBox()
@@ -813,18 +778,8 @@ class TextureCleaner(QMainWindow):
         right_layout.addWidget(self.fixed_options_frame)
         
         # Bouton Appliquer à la sélection
-        self.apply_btn = QPushButton("Associer ces réglages à la sélection")
-        self.apply_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #533483;
-                color: white;
-                font-weight: bold;
-                padding: 10px;
-                border-radius: 6px;
-                margin-top: 10px;
-            }
-            QPushButton:hover { background-color: #6a42a8; }
-        """)
+        self.apply_btn = QPushButton("APPLY TO SELECTION")
+        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_btn.clicked.connect(self.apply_settings_to_selection)
         right_layout.addWidget(self.apply_btn)
         
@@ -833,32 +788,35 @@ class TextureCleaner(QMainWindow):
 
         # --- Zone Basse: Stats et Actions ---
         bottom_container = QFrame()
-        bottom_container.setStyleSheet("background-color: #0f3460; border-top: 2px solid #533483; border-radius: 0px 0px 8px 8px;")
+        bottom_container.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_panel']}; border-top: 1px solid {STYLE_CONFIG['border']}; border-radius: 0px;")
         bottom_layout = QVBoxLayout()
+        bottom_layout.setContentsMargins(10, 5, 10, 10)
+        bottom_layout.setSpacing(5)
         bottom_container.setLayout(bottom_layout)
 
         # Stats Globales
-        self.global_stats_label = QLabel("Poids Total : 0 MB -> 0 MB | Gain : 0 MB (0%)")
+        self.global_stats_label = QLabel("Weight : 0 MB -> 0 MB | Gain : 0 MB (0%)")
         self.global_stats_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f1f1; padding: 5px;")
+        self.global_stats_label.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {STYLE_CONFIG['text_main']}; padding: 10px; border-bottom: 1px solid {STYLE_CONFIG['border']};")
         bottom_layout.addWidget(self.global_stats_label)
 
         # Bouton d'exécution
-        self.execute_btn = QPushButton("🚀 Lancer l'optimisation")
-        self.execute_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #00b09b, stop:1 #96c93d);
-                color: white;
+        self.execute_btn = QPushButton("RUN OPTIMIZATION")
+        self.execute_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.execute_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_button']};
+                color: {STYLE_CONFIG['text_highlight']};
                 font-weight: bold;
                 padding: 15px;
-                font-size: 18px;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #00c9b1, stop:1 #a8df44);
-            }
+                font-size: 16px;
+                border-radius: 4px;
+                border: 2px solid {STYLE_CONFIG['accent']};
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+                border: 2px solid {STYLE_CONFIG['accent_hover']};
+            }}
         """)
         self.execute_btn.clicked.connect(self.execute_resize)
         bottom_layout.addWidget(self.execute_btn)
@@ -889,106 +847,215 @@ class TextureCleaner(QMainWindow):
         label_compression.setAlignment(Qt.AlignmentFlag.AlignCenter)
         compression_layout.addWidget(label_compression)
         
-        # Style global - Mode sombre
-        self.setStyleSheet("""
-            QMainWindow {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #1a1a2e, stop:1 #16213e);
-            }
-            QTabWidget::pane {
-                border: 1px solid #533483;
-                background-color: #1a1a2e;
-            }
-            QTabBar::tab {
-                background: #0f3460;
-                color: #f1f1f1;
-                padding: 10px;
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                margin-right: 2px;
-            }
-            QTabBar::tab:selected {
-                background: #16213e;
-                border-bottom: 2px solid #e94560;
-                color: #e94560;
+        # Style global - Mode Blender Pro
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                background-color: {STYLE_CONFIG['bg_main']};
+                font-family: {STYLE_CONFIG['font_family']};
+                font-size: {STYLE_CONFIG['font_size']};
+            }}
+            
+            QWidget {{
+                color: {STYLE_CONFIG['text_main']};
+                font-family: {STYLE_CONFIG['font_family']};
+            }}
+
+            QTabWidget::pane {{
+                border: 1px solid {STYLE_CONFIG['border']};
+                background-color: {STYLE_CONFIG['bg_main']};
+                top: -1px;
+            }}
+            
+            QTabBar::tab {{
+                background: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_main']};
+                padding: 6px 15px;
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-bottom: none;
+                margin-right: 1px;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+            }}
+            
+            QTabBar::tab:selected {{
+                background: {STYLE_CONFIG['bg_main']};
+                border-bottom: 2px solid {STYLE_CONFIG['accent']};
+                color: {STYLE_CONFIG['text_highlight']};
                 font-weight: bold;
-            }
-            QGroupBox {
-                background-color: #0f3460;
-                border: 2px solid #533483;
-                border-radius: 15px;
-                padding: 15px;
+            }}
+
+            QGroupBox {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                margin-top: 18px;
+                padding-top: 10px;
                 font-weight: bold;
-                font-size: 14px;
-                color: #e94560;
-            }
-            QGroupBox::title {
-                color: #e94560;
+                color: {STYLE_CONFIG['text_highlight']};
+            }}
+            
+            QGroupBox::title {{
                 subcontrol-origin: margin;
                 subcontrol-position: top left;
-                padding: 5px 10px;
-            }
-            QPushButton {
-                padding: 10px;
-                border-radius: 8px;
+                left: 10px;
+                padding: 0 5px;
+                background-color: transparent;
+            }}
+
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_button']};
+                color: {STYLE_CONFIG['text_highlight']};
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                border-radius: 4px;
+                padding: 4px 12px;
+                font-weight: normal;
+            }}
+            
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+                border: 1px solid {STYLE_CONFIG['accent']};
+            }}
+            
+            QPushButton:pressed {{
+                background-color: {STYLE_CONFIG['accent']};
+                color: black;
+            }}
+
+            QLineEdit, QSpinBox, QComboBox {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                color: {STYLE_CONFIG['text_highlight']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                padding: 4px 8px;
+                selection-background-color: {STYLE_CONFIG['selection']};
+            }}
+            
+            QLineEdit:hover, QSpinBox:hover, QComboBox:hover {{
+                border: 1px solid {STYLE_CONFIG['border_light']};
+            }}
+            
+            QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{
+                border: 1px solid {STYLE_CONFIG['accent']};
+            }}
+
+            QListWidget {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                color: {STYLE_CONFIG['text_main']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                outline: none;
+            }}
+            
+            QListWidget::item {{
+                padding: 4px;
+                border-radius: 2px;
+            }}
+            
+            QListWidget::item:selected {{
+                background-color: {STYLE_CONFIG['selection']};
+                color: white;
+            }}
+
+            /* Scrollbars Blender Style */
+            QScrollBar:vertical {{
+                border: none;
+                background: transparent;
+                width: 8px;
+                margin: 0px;
+            }}
+            
+            QScrollBar::handle:vertical {{
+                background: {STYLE_CONFIG['border_light']};
+                min-height: 20px;
+                border-radius: 4px;
+            }}
+            
+            QScrollBar::handle:vertical:hover {{
+                background: #777;
+            }}
+            
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+                border: none;
+                background: none;
+            }}
+            
+            QScrollBar:horizontal {{
+                border: none;
+                background: transparent;
+                height: 8px;
+                margin: 0px;
+            }}
+            
+            QScrollBar::handle:horizontal {{
+                background: {STYLE_CONFIG['border_light']};
+                min-width: 20px;
+                border-radius: 4px;
+            }}
+            
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+                border: none;
+                background: none;
+            }}
+
+            QScrollArea {{
+                border: none;
+                background-color: transparent;
+            }}
+            
+            QHeaderView::section {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_highlight']};
+                padding: 4px;
+                border: 1px solid {STYLE_CONFIG['border']};
                 font-weight: bold;
-            }
-            QLabel {
-                color: #f1f1f1;
-            }
-            QRadioButton {
-                color: #f1f1f1;
-            }
-            QLineEdit {
-                background-color: #1a1a2e;
-                color: #f1f1f1;
-                border: 1px solid #533483;
-                border-radius: 5px;
-                padding: 5px;
-            }
-            QListWidget {
-                background-color: #1a1a2e;
-                color: #f1f1f1;
-                border: 1px solid #533483;
-            }
+            }}
+
+            QTableWidget {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                gridline-color: {STYLE_CONFIG['border']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                outline: none;
+            }}
         """)
     
     def create_source_column(self):
-        group = QGroupBox("📄 Source texte")
+        group = QGroupBox("SOURCE DATA")
         layout = QVBoxLayout()
+        layout.setContentsMargins(8, 12, 8, 8)
+        layout.setSpacing(4)
         
         # Layout boutons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(2)
         
         # Bouton de sélection
-        select_btn = QPushButton("📁 Dossier de textures")
-        select_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #5a6fd8, stop:1 #6a4390);
-            }
+        select_btn = QPushButton("IMPORT SOURCES")
+        select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        select_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_button']};
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                color: {STYLE_CONFIG['text_highlight']};
+                font-size: 12px;
+                padding: 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+                border: 1px solid {STYLE_CONFIG['accent']};
+            }}
         """)
         select_btn.clicked.connect(self.select_source_files)
         btn_layout.addWidget(select_btn)
         
         # Bouton actualiser (Icone)
         refresh_btn = QPushButton("🔄")
-        refresh_btn.setFixedSize(40, 40)
-        refresh_btn.setToolTip("Recharger les fichiers sources")
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #00d9ff, stop:1 #00a8cc);
-                color: white;
-                font-size: 20px;
-            }
-        """)
+        refresh_btn.setFixedSize(34, 34)
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.setToolTip("Reload source files")
+        refresh_btn.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_button']}; color: white; border: 1px solid {STYLE_CONFIG['border_light']}; font-weight: bold; padding: 0px; font-size: 16px;")
         refresh_btn.clicked.connect(self.reload_source_files)
         btn_layout.addWidget(refresh_btn)
         
@@ -997,33 +1064,31 @@ class TextureCleaner(QMainWindow):
         # Liste des fichiers importés
         self.imported_files_list = QListWidget()
         self.imported_files_list.setMaximumHeight(150)
-        self.imported_files_list.setStyleSheet("""
-            QListWidget {
-                background-color: #1a1a2e;
-                border-radius: 8px;
+        self.imported_files_list.setSpacing(4)
+        self.imported_files_list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                border: 1px solid {STYLE_CONFIG['border']};
                 padding: 5px;
-                border: 1px solid #533483;
-            }
-            QListWidget::item {
-                background-color: #0f3460;
-                border-left: 3px solid #e94560;
-                border-radius: 5px;
+            }}
+            QListWidget::item {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                border-left: 4px solid {STYLE_CONFIG['accent']};
                 padding: 8px;
-                margin: 3px;
-                color: #f1f1f1;
-            }
-            QListWidget::item:hover {
-                background-color: #16213e;
-            }
+                margin-bottom: 2px;
+                color: {STYLE_CONFIG['text_highlight']};
+            }}
+            QListWidget::item:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+            }}
         """)
-        layout.addWidget(QLabel("📋 Fichiers importés:"))
+        layout.addWidget(QLabel("IMPORTED FILES:"))
         layout.addWidget(self.imported_files_list)
         
 
         
-        # Recherche
         self.source_search = QLineEdit()
-        self.source_search.setPlaceholderText("🔍 Rechercher...")
+        self.source_search.setPlaceholderText("Search...")
         self.source_search.textChanged.connect(self.refresh_source_list)
         layout.addWidget(self.source_search)
         
@@ -1039,7 +1104,7 @@ class TextureCleaner(QMainWindow):
         filter_layout = QHBoxLayout()
         self.source_filter_group = QButtonGroup()
         
-        filters = [("Tous", "all"), (".jpg", ".jpg"), (".png", ".png"), 
+        filters = [("ALL", "all"), (".jpg", ".jpg"), (".png", ".png"), 
                    (".jpeg", ".jpeg"), (".webp", ".webp")]
         for i, (label, value) in enumerate(filters):
             radio = QRadioButton(label)
@@ -1057,41 +1122,39 @@ class TextureCleaner(QMainWindow):
         return group
     
     def create_folder_column(self):
-        group = QGroupBox("📁  Dossier de textures")
+        group = QGroupBox("TEXTURE FOLDER")
         layout = QVBoxLayout()
+        layout.setContentsMargins(8, 12, 8, 8)
+        layout.setSpacing(4)
         
         # Layout boutons
         btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(2)
 
         # Bouton de sélection
-        select_btn = QPushButton("📂 Sélectionner un dossier")
-        select_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #667eea, stop:1 #764ba2);
-                color: white;
-                font-size: 13px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #5a6fd8, stop:1 #6a4390);
-            }
+        select_btn = QPushButton("SELECT FOLDER")
+        select_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        select_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_button']};
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                color: {STYLE_CONFIG['text_highlight']};
+                font-size: 12px;
+                padding: 6px;
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+                border: 1px solid {STYLE_CONFIG['accent']};
+            }}
         """)
         select_btn.clicked.connect(self.select_folder)
         btn_layout.addWidget(select_btn)
         
         # Bouton actualiser (Icone)
         refresh_btn = QPushButton("🔄")
-        refresh_btn.setFixedSize(40, 40)
-        refresh_btn.setToolTip("Rescanner le dossier")
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #00d9ff, stop:1 #00a8cc);
-                color: white;
-                font-size: 20px;
-            }
-        """)
+        refresh_btn.setFixedSize(34, 34)
+        refresh_btn.setToolTip("Rescan folder")
+        refresh_btn.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_button']}; color: white; border: 1px solid {STYLE_CONFIG['border_light']}; font-weight: bold; padding: 0px; font-size: 16px;")
         refresh_btn.clicked.connect(self.reload_folder_files)
         btn_layout.addWidget(refresh_btn)
         
@@ -1099,9 +1162,8 @@ class TextureCleaner(QMainWindow):
         
 
         
-        # Recherche
         self.folder_search = QLineEdit()
-        self.folder_search.setPlaceholderText("🔍 Rechercher...")
+        self.folder_search.setPlaceholderText("Search...")
         self.folder_search.textChanged.connect(self.refresh_folder_list)
         layout.addWidget(self.folder_search)
         
@@ -1117,7 +1179,7 @@ class TextureCleaner(QMainWindow):
         filter_layout = QHBoxLayout()
         self.folder_filter_group = QButtonGroup()
         
-        filters = [("Tous", "all"), ("✅ Utilisées", "green"), ("❌ Non utilisées", "red")]
+        filters = [("All", "all"), ("● Both", "green"), ("● Folder only", "red")]
         for i, (label, value) in enumerate(filters):
             radio = QRadioButton(label)
             radio.setProperty("filter_value", value)
@@ -1134,27 +1196,40 @@ class TextureCleaner(QMainWindow):
         return group
     
     def create_stats_column(self):
-        group = QGroupBox("📊 Récapitulatif")
+        group = QGroupBox("SUMMARY")
         layout = QVBoxLayout()
+        layout.setContentsMargins(8, 12, 8, 8)
+        layout.setSpacing(6)
         
         # Légende
         legend_group = QGroupBox("Légende")
         legend_layout = QVBoxLayout()
-        legend_layout.addWidget(QLabel("🔵 Fichier source uniquement"))
-        legend_layout.addWidget(QLabel("🟢 Présent dans les deux"))
-        legend_layout.addWidget(QLabel("🔴 Dossier uniquement"))
+        
+        l_source = QLabel("🔴 - Source file only")
+        l_source.setStyleSheet(f"color: {STYLE_CONFIG['status_red']}; font-weight: bold;")
+        legend_layout.addWidget(l_source)
+        
+        l_both = QLabel("🟢 - Present in both")
+        l_both.setStyleSheet(f"color: {STYLE_CONFIG['status_green']}; font-weight: bold;")
+        legend_layout.addWidget(l_both)
+        
+        l_folder = QLabel("🟠 - Folder only")
+        l_folder.setStyleSheet(f"color: {STYLE_CONFIG['status_orange']}; font-weight: bold;")
+        legend_layout.addWidget(l_folder)
+        
         legend_group.setLayout(legend_layout)
         layout.addWidget(legend_group)
         
         # Cartes statistiques
-        self.stat_source = self.create_stat_card("Images dans le fichier source", "#667eea", 
+        self.stat_source = self.create_stat_card("IMAGE IN COURCES", STYLE_CONFIG['bg_button'], 
                                                   lambda: self.show_modal('source'))
-        self.stat_folder = self.create_stat_card("Images dans le dossier", "#667eea",
+        self.stat_folder = self.create_stat_card("IMAGE IN FOLDER", STYLE_CONFIG['bg_button'],
                                                   lambda: self.show_modal('folder'))
-        self.stat_match = self.create_stat_card("Correspondances", "#667eea",
+        self.stat_match = self.create_stat_card("MATCHING IMAGES", STYLE_CONFIG['bg_button'],
                                                  lambda: self.show_modal('match'))
-        self.stat_missing = self.create_stat_card("Uniquement dans le dossier", "#f44336",
+        self.stat_missing = self.create_stat_card("ORPHANS", "#4d2b2b",
                                                    lambda: self.show_modal('missing'))
+        self.stat_missing.setProperty("subtext", "(See and delete files)")
         
         layout.addWidget(self.stat_source)
         layout.addWidget(self.stat_folder)
@@ -1168,18 +1243,20 @@ class TextureCleaner(QMainWindow):
     def create_stat_card(self, label_text, color, click_handler):
         card = QPushButton()
         card.setMinimumHeight(120)
+        card.setCursor(Qt.CursorShape.PointingHandCursor)
         card.setStyleSheet(f"""
             QPushButton {{
-                background: {color};
-                color: white;
-                border-radius: 10px;
+                background-color: {color};
+                color: {STYLE_CONFIG['text_highlight']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 6px;
                 text-align: center;
-                font-size: 16px;
+                font-size: 14px;
                 font-weight: bold;
                 padding: 15px;
             }}
             QPushButton:hover {{
-                opacity: 0.9;
+                background-color: {STYLE_CONFIG['border_light']};
             }}
         """)
         card.clicked.connect(click_handler)
@@ -1194,8 +1271,12 @@ class TextureCleaner(QMainWindow):
         count = card.property("count")
         size = card.property("fileSize")
         label = card.property("label")
+        subtext = card.property("subtext")
         # Format avec nombre en gros, label en petit, taille en bas
-        card.setText(f"{count}\n{label}\n{size}")
+        text = f"{count}\n{label}\n{size}"
+        if subtext:
+             text += f"\n\n{subtext}"
+        card.setText(text)
         card.setStyleSheet(card.styleSheet() + f"""
             QPushButton {{
                 line-height: 1.4;
@@ -1363,22 +1444,24 @@ class TextureCleaner(QMainWindow):
             is_in_folder = any(f['name'].lower() == img_name for f in self.folder_files)
             
             # Créer un bouton cliquable pour afficher l'usage
-            item = QPushButton(f"{'🟢' if is_in_folder else '🔵'} {img_name}")
-            item.setStyleSheet("""
-                QPushButton {
-                    background-color: #0f3460;
-                    border-radius: 6px;
-                    padding: 10px;
-                    margin: 2px;
-                    color: #f1f1f1;
-                    border: 1px solid #533483;
+            item = QPushButton(f"{img_name}")
+            item.setCursor(Qt.CursorShape.PointingHandCursor)
+            
+            item.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_input']};
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-bottom: 2px;
+                    color: {STYLE_CONFIG['text_main']};
+                    border: 1px solid {STYLE_CONFIG['border']};
                     text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #16213e;
-                    border: 1px solid #e94560;
-                    cursor: pointer;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['border_light']};
+                    border: 1px solid {STYLE_CONFIG['accent']};
+                    color: {STYLE_CONFIG['text_highlight']};
+                }}
             """)
             item.clicked.connect(lambda checked, name=img_name: self.show_usage_popup(name))
             self.source_list_layout.addWidget(item)
@@ -1417,22 +1500,27 @@ class TextureCleaner(QMainWindow):
                 continue
             
             # Créer un bouton cliquable au lieu d'un label
-            item = QPushButton(f"{'🟢' if is_in_source else '🔴'} {file_info['name']}")
-            item.setStyleSheet("""
-                QPushButton {
-                    background-color: #0f3460;
-                    border-radius: 6px;
-                    padding: 10px;
-                    margin: 2px;
-                    color: #f1f1f1;
-                    border: 1px solid #533483;
+            item = QPushButton(f"{file_info['name']}")
+            item.setCursor(Qt.CursorShape.PointingHandCursor)
+            
+            status_color = STYLE_CONFIG['status_green'] if is_in_source else STYLE_CONFIG['status_orange']
+            
+            item.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_input']};
+                    border-radius: 4px;
+                    padding: 8px;
+                    margin-bottom: 2px;
+                    color: {status_color};
+                    font-weight: bold;
+                    border: 1px solid {STYLE_CONFIG['border']};
                     text-align: left;
-                }
-                QPushButton:hover {
-                    background-color: #16213e;
-                    border: 1px solid #e94560;
-                    cursor: pointer;
-                }
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['border_light']};
+                    border: 1px solid {STYLE_CONFIG['accent']};
+                    color: {STYLE_CONFIG['text_highlight']};
+                }}
             """)
             # Connecter le clic pour afficher la prévisualisation
             item.clicked.connect(lambda checked, path=file_info['path'], name=file_info['name']: self.show_image_preview(path, name))
@@ -1534,70 +1622,80 @@ class TextureCleaner(QMainWindow):
         
         # Titre
         if modal_type == 'source':
-            title = "📄 Images dans le fichier source"
+            title = "SOURCE DATA IMAGES"
             files_to_show = [{'name': name, 'path': '', 'size': 0} for name in self.source_files]
         elif modal_type == 'folder':
-            title = "📁 Toutes les images du dossier"
+            title = "FOLDER IMAGES"
             files_to_show = self.folder_files
         elif modal_type == 'match':
-            title = "✅ Images présentes dans les deux"
+            title = "MATCHING IMAGES [ok]"
             files_to_show = [f for f in self.folder_files if f['name'].lower() in self.source_files]
         else:  # missing
-            title = "❌ Images uniquement dans le dossier"
+            title = "ORPHAN IMAGES [!!]"
             files_to_show = [f for f in self.folder_files if f['name'].lower() not in self.source_files]
         
         title_label = QLabel(title)
-        title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e94560; padding: 10px; background-color: #0f3460; border-radius: 8px;")
+        title_label.setStyleSheet(f"font-size: 16px; font-weight: bold; color: {STYLE_CONFIG['accent']}; padding: 10px; background-color: {STYLE_CONFIG['bg_panel']}; border-bottom: 1px solid {STYLE_CONFIG['border']};")
         layout.addWidget(title_label)
         
             # Boutons d'action pour "missing"
         if modal_type == 'missing' and files_to_show:
             action_layout = QHBoxLayout()
             
-            select_all_btn = QPushButton(f"✅ Tout sélectionner ({len(files_to_show)} fichiers)")
-            select_all_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                        stop:0 #533483, stop:1 #e94560);
+            select_all_btn = QPushButton(f"SELECT ALL ({len(files_to_show)})")
+            select_all_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            select_all_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_panel']};
                     color: white;
-                    padding: 12px;
-                    font-size: 14px;
-                }
-                QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                        stop:0 #6a4390, stop:1 #ff5577);
-                    }
+                    padding: 10px;
+                    border: 1px solid {STYLE_CONFIG['border_light']};
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['accent']};
+                    color: black;
+                }}
             """)
             
-            self.move_btn = QPushButton("📂 Déplacer la sélection")
-            self.move_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                        stop:0 #ff9800, stop:1 #f57c00);
-                    color: white;
-                    padding: 12px;
-                    font-size: 14px;
-                }
-                 QPushButton:disabled {
-                    background: #555;
-                    color: #aaa;
-                }
+            self.move_btn = QPushButton("MOVE SELECTION")
+            self.move_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.move_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {STYLE_CONFIG['bg_panel']};
+                    color: {STYLE_CONFIG['text_highlight']};
+                    padding: 10px;
+                    border: 1px solid {STYLE_CONFIG['border_light']};
+                }}
+                QPushButton:hover {{
+                    background-color: {STYLE_CONFIG['accent']};
+                    color: black;
+                }}
+                 QPushButton:disabled {{
+                    background-color: {STYLE_CONFIG['bg_input']};
+                    color: #555;
+                    border: 1px solid {STYLE_CONFIG['border']};
+                }}
             """)
             self.move_btn.setEnabled(False)
 
-            self.delete_btn = QPushButton("🗑️ Supprimer la sélection")
-            self.delete_btn.setStyleSheet("""
-                QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                        stop:0 #f44336, stop:1 #e91e63);
+            self.delete_btn = QPushButton("DELETE SELECTION")
+            self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.delete_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: #4d2b2b;
+                    color: #ff9999;
+                    padding: 10px;
+                    border: 1px solid #803030;
+                }}
+                QPushButton:hover {{
+                    background-color: #803030;
                     color: white;
-                    padding: 12px;
-                    font-size: 14px;
-                }
-                 QPushButton:disabled {
-                    background: #555;
-                    color: #aaa;
-                }
+                }}
+                 QPushButton:disabled {{
+                    background-color: {STYLE_CONFIG['bg_input']};
+                    color: #555;
+                    border: 1px solid {STYLE_CONFIG['border']};
+                }}
             """)
             self.delete_btn.setEnabled(False)
             
@@ -1609,13 +1707,13 @@ class TextureCleaner(QMainWindow):
             # Séparateur
             separator = QFrame()
             separator.setFrameShape(QFrame.Shape.HLine)
-            separator.setStyleSheet("background-color: #533483; margin: 10px 0;")
+            separator.setStyleSheet(f"background-color: {STYLE_CONFIG['border']}; margin: 10px 0;")
             layout.addWidget(separator)
         
         # Statistiques
         total_size = sum(f['size'] for f in files_to_show)
         stats_label = QLabel(f"📊 {len(files_to_show)} images • {ImageThumbnail.format_file_size(total_size)}")
-        stats_label.setStyleSheet("font-size: 14px; padding: 10px; background-color: #0f3460; border-radius: 8px; color: #f1f1f1;")
+        stats_label.setStyleSheet(f"font-size: 13px; padding: 10px; color: {STYLE_CONFIG['text_main']};")
         layout.addWidget(stats_label)
         
         # Grille de miniatures
@@ -1679,7 +1777,7 @@ class TextureCleaner(QMainWindow):
         
         # Boutons de dialogue
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        button_box.setStyleSheet("QPushButton { background-color: #533483; color: white; border-radius: 5px; padding: 5px 15px; }")
+        button_box.setStyleSheet(f"QPushButton {{ background-color: {STYLE_CONFIG['bg_panel']}; color: {STYLE_CONFIG['text_highlight']}; border: 1px solid {STYLE_CONFIG['border_light']}; padding: 5px 15px; }}")
         button_box.rejected.connect(dialog.reject)
         layout.addWidget(button_box)
         
@@ -1690,7 +1788,7 @@ class TextureCleaner(QMainWindow):
             self.move_btn.clicked.connect(lambda: self.move_selected_files(thumbnails, dialog))
         
         dialog.setLayout(layout)
-        dialog.setStyleSheet("QDialog { background-color: #1a1a2e; }")
+        dialog.setStyleSheet(f"QDialog {{ background-color: {STYLE_CONFIG['bg_main']}; border: 1px solid {STYLE_CONFIG['border']}; }}")
         
         # Exécuter et nettoyer explicitement après
         dialog.exec()
@@ -1842,13 +1940,13 @@ class TextureCleaner(QMainWindow):
         
         # Titre
         title_label = QLabel(image_name)
-        title_label.setStyleSheet("""
-            font-size: 18px;
+        title_label.setStyleSheet(f"""
+            font-size: 16px;
             font-weight: bold;
-            color: #e94560;
+            color: {STYLE_CONFIG['accent']};
             padding: 10px;
-            background-color: #0f3460;
-            border-radius: 8px;
+            background-color: {STYLE_CONFIG['bg_panel']};
+            border-bottom: 1px solid {STYLE_CONFIG['border']};
         """)
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
@@ -1894,19 +1992,20 @@ class TextureCleaner(QMainWindow):
         
         # Bouton fermer
         close_btn = QPushButton("Fermer")
-        close_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #533483, stop:1 #e94560);
-                color: white;
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_highlight']};
                 padding: 10px;
                 font-size: 14px;
-                border-radius: 8px;
-            }
-            QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #6a4390, stop:1 #ff5577);
-            }
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['accent']};
+                color: black;
+            }}
         """)
         close_btn.clicked.connect(dialog.accept)
         layout.addWidget(close_btn)
@@ -2200,8 +2299,8 @@ class TextureCleaner(QMainWindow):
         pct_gain = (gain / total_orig_size * 100) if total_orig_size > 0 else 0
         
         self.global_stats_label.setText(
-            f"Fichiers à traiter : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
-            f"| Gain : {ImageThumbnail.format_file_size(gain)} ({pct_gain:.1f}%)"
+            f"Optimization result : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
+            f"| Save : {ImageThumbnail.format_file_size(gain)} ({pct_gain:.1f}%)"
         )
         if gain > 0:
             self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #4caf50; padding: 5px;")
@@ -2226,20 +2325,35 @@ class TextureCleaner(QMainWindow):
                 rows_to_process.append(i)
         
         if not rows_to_process:
-             QMessageBox.warning(self, "Attention", "Aucun réglage n'a été associé. Cliquez sur 'Associer ces réglages à la sélection' pour préparer les fichiers.")
+             QMessageBox.warning(self, "WARNING", "No settings associated. Click 'APPLY TO SELECTION' to prepare files.")
              return
              
-        selection_msg = f"les {len(rows_to_process)} images préparées"
+        selection_msg = f"{len(rows_to_process)} prepared images"
 
         # Dialogue choix destination
         msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("Lancer l'optimisation")
-        msg_box.setText(f"Vous allez traiter {selection_msg}.\nComment voulez-vous sauvegarder ?")
-        msg_box.setStyleSheet("background-color: #1a1a2e; color: white;")
+        msg_box.setWindowTitle("RUN OPTIMIZATION")
+        msg_box.setText(f"Process {selection_msg}.\nSelect output method:")
+        msg_box.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_main']}; color: {STYLE_CONFIG['text_main']};")
         
-        btn_overwrite = msg_box.addButton("Écraser les fichiers existants", QMessageBox.ButtonRole.DestructiveRole)
-        btn_new_folder = msg_box.addButton("Créer dans un nouveau dossier...", QMessageBox.ButtonRole.ActionRole)
-        btn_cancel = msg_box.addButton("Annuler", QMessageBox.ButtonRole.RejectRole)
+        btn_style_dialog = f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_highlight']};
+                border: 1px solid {STYLE_CONFIG['border_light']};
+                padding: 8px 15px;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{ background-color: {STYLE_CONFIG['accent']}; color: black; }}
+        """
+        
+        btn_overwrite = msg_box.addButton("OVERWRITE ORIGINALS", QMessageBox.ButtonRole.DestructiveRole)
+        btn_new_folder = msg_box.addButton("CREATE IN NEW FOLDER", QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg_box.addButton("CANCEL", QMessageBox.ButtonRole.RejectRole)
+        
+        btn_overwrite.setStyleSheet(btn_style_dialog)
+        btn_new_folder.setStyleSheet(btn_style_dialog)
+        btn_cancel.setStyleSheet(btn_style_dialog)
         
         msg_box.exec()
         
@@ -2252,12 +2366,12 @@ class TextureCleaner(QMainWindow):
         overwrite = False
         
         if clicked_button == btn_overwrite:
-            confirm = QMessageBox.question(self, "Confirmation ultime", "Êtes-vous SÛR de vouloir écraser les fichiers originaux ?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            confirm = QMessageBox.question(self, "FINAL CONFIRMATION", "Are you SURE you want to overwrite the original files?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if confirm != QMessageBox.StandardButton.Yes:
                 return
             overwrite = True
         elif clicked_button == btn_new_folder:
-            target_folder = QFileDialog.getExistingDirectory(self, "Choisir le dossier de destination")
+            target_folder = QFileDialog.getExistingDirectory(self, "Select Destination Directory")
             if not target_folder:
                 return
         
@@ -2270,11 +2384,30 @@ class TextureCleaner(QMainWindow):
         
         # Barre de progression
         progress = QDialog(self)
-        progress.setWindowTitle("Traitement en cours...")
-        progress.setFixedSize(300, 100)
+        progress.setWindowTitle("PROCESSING...")
+        progress.setFixedSize(400, 120)
+        progress.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_panel']}; border: 1px solid {STYLE_CONFIG['border']};")
         progress_layout = QVBoxLayout()
+        
+        label_p = QLabel("OPTIMIZING TEXTURES...")
+        label_p.setStyleSheet(f"color: {STYLE_CONFIG['text_highlight']}; font-weight: bold;")
+        
         p_bar = QProgressBar()
-        progress_layout.addWidget(QLabel("Optimisation des textures..."))
+        p_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {STYLE_CONFIG['bg_input']};
+                border: 1px solid {STYLE_CONFIG['border']};
+                border-radius: 4px;
+                text-align: center;
+                color: white;
+            }}
+            QProgressBar::chunk {{
+                background-color: {STYLE_CONFIG['accent']};
+                border-radius: 2px;
+            }}
+        """)
+        
+        progress_layout.addWidget(label_p)
         progress_layout.addWidget(p_bar)
         progress.setLayout(progress_layout)
         progress.show()
@@ -2354,7 +2487,7 @@ class TextureCleaner(QMainWindow):
             
         progress.close()
         
-        QMessageBox.information(self, "Terminé", f"Traitement terminé.\nSuccès: {success_count}\nErreurs: {error_count}")
+        QMessageBox.information(self, "FINISHED", f"Processing complete.\nSuccess: {success_count}\nErrors: {error_count}")
         
         # Refresh si overwrite
         if overwrite:
@@ -2372,7 +2505,7 @@ def main():
             app = QApplication.instance()
             if not app:
                 app = QApplication(sys.argv)
-            QMessageBox.critical(None, "Erreur Fatale", f"Une erreur est survenue au démarrage:\n\n{error_msg}")
+            QMessageBox.critical(None, "FATAL ERROR", f"An error occurred during startup:\n\n{error_msg}")
         except:
             # Fallback si PyQt plante aussi
             with open("error_log.txt", "w") as f:
