@@ -17,12 +17,13 @@ from PyQt6.QtWidgets import (
     QSplitter, QGroupBox, QButtonGroup, QRadioButton, QTabWidget,
     QComboBox, QSpinBox, QDoubleSpinBox, QProgressBar, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QHeaderView, QSlider, QCheckBox,
-    QDialog, QTextEdit, QPlainTextEdit
+    QDialog, QTextEdit, QPlainTextEdit, QSizePolicy, QProgressBar,
+    QStyledItemDelegate, QStyle
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal, QRunnable, QThreadPool, QObject, QRegularExpression
+from PyQt6.QtCore import Qt, QSize, pyqtSignal, QRunnable, QThreadPool, QObject, QRegularExpression, QTimer
 from PyQt6.QtGui import (
-    QPixmap, QIcon, QFont, QImage, QImageReader, QTextCharFormat, 
-    QColor, QTextCursor, QSyntaxHighlighter, QTextDocument
+    QPixmap, QIcon, QFont, QImage, QImageReader, QImageWriter, QTextCharFormat, 
+    QColor, QTextCursor, QSyntaxHighlighter, QTextDocument, QPalette
 )
 import ctypes
 
@@ -58,11 +59,293 @@ def resource_path(relative_path):
 
     return os.path.join(base_path, relative_path)
 
+class ImageViewer(QScrollArea):
+    """Widget pour afficher une image avec zoom et pan"""
+    zoomChanged = pyqtSignal(float)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(False) # On garde le contrôle total de la taille du widget
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setStyleSheet("background-color: #1a1a1a; border: none;")
+        self.setCursor(Qt.CursorShape.OpenHandCursor)
+        
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.image_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        self.image_label.setScaledContents(True)
+        
+        self.setWidget(self.image_label)
+        
+        self.zoom_factor = 1.0
+        self.pixmap = None
+        self.last_mouse_pos = None
+
+    def set_pixmap(self, pixmap):
+        self.pixmap = pixmap
+        if pixmap and not pixmap.isNull():
+            self.image_label.setPixmap(pixmap)
+        else:
+            self.image_label.clear()
+            self.image_label.setText("Pas d'image")
+        self.update_viewer()
+
+    def update_viewer(self):
+        if self.pixmap and not self.pixmap.isNull():
+            size = self.pixmap.size() * self.zoom_factor
+            self.image_label.setFixedSize(size)
+            # setScaledContents(True) s'occupe du reste, c'est plus fluide
+        else:
+            self.image_label.setFixedSize(QSize(0, 0))
+
+    def center_image(self):
+        """Place les scrollbars au centre"""
+        h_bar = self.horizontalScrollBar()
+        v_bar = self.verticalScrollBar()
+        h_bar.setValue((h_bar.minimum() + h_bar.maximum()) // 2)
+        v_bar.setValue((v_bar.minimum() + v_bar.maximum()) // 2)
+
+    def wheelEvent(self, event):
+        if not self.pixmap or self.pixmap.isNull():
+            return
+
+        old_zoom = self.zoom_factor
+        delta = event.angleDelta().y()
+        
+        if delta > 0:
+            self.zoom_factor *= 1.1
+        else:
+            self.zoom_factor /= 1.1
+            
+        self.zoom_factor = max(0.1, min(self.zoom_factor, 10.0))
+        
+        if old_zoom == self.zoom_factor:
+            return
+
+        # Position de la souris dans le viewport (zone visible)
+        pos = event.position().toPoint() if hasattr(event, 'position') else event.pos()
+        
+        # Point dans l'image avant le zoom
+        # mapFromParent ou mapFromViewport pour être sûr du point visé
+        point_in_image = self.image_label.mapFrom(self.viewport(), pos)
+        
+        # Appliquer le zoom
+        self.update_viewer()
+        
+        # Calcul du décalage (offset) pour que le point reste sous la souris
+        ratio = self.zoom_factor / old_zoom
+        new_point_in_image = point_in_image * ratio
+        
+        # On calcule les nouvelles valeurs de scroll
+        # delta = nouveau_point_image - position_souris_viewport
+        new_h = new_point_in_image.x() - pos.x()
+        new_v = new_point_in_image.y() - pos.y()
+        
+        self.horizontalScrollBar().setValue(int(new_h))
+        self.verticalScrollBar().setValue(int(new_v))
+        
+        self.zoomChanged.emit(self.zoom_factor)
+        event.accept()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.last_mouse_pos = event.pos()
+            self.setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.last_mouse_pos is not None:
+            delta = event.pos() - self.last_mouse_pos
+            self.last_mouse_pos = event.pos()
+            
+            # Pan
+            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - delta.y())
+            event.accept()
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.last_mouse_pos = None
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
+
+class SyncedImageViewer(QWidget):
+    """Double visionneuse synchronisée pour comparer source et compressé"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # Grid pour les labels et les viewers
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(2)
+        
+        label_style = "font-weight: bold; color: #f09000; background-color: #282828; padding: 4px;"
+        
+        self.label_left = QLabel("SOURCE (ORIGINAL)")
+        self.label_left.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_left.setStyleSheet(label_style)
+        
+        self.label_right = QLabel("PREVIEW (COMPRESSED)")
+        self.label_right.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.label_right.setStyleSheet(label_style)
+        
+        self.left_viewer = ImageViewer()
+        self.right_viewer = ImageViewer()
+        
+        # Synchronisation du zoom et du scroll
+        self.left_viewer.horizontalScrollBar().valueChanged.connect(lambda v: self.sync_h_scroll(v, source='left'))
+        self.right_viewer.horizontalScrollBar().valueChanged.connect(lambda v: self.sync_h_scroll(v, source='right'))
+        self.left_viewer.verticalScrollBar().valueChanged.connect(self.sync_v_scroll)
+        self.right_viewer.verticalScrollBar().valueChanged.connect(self.sync_v_scroll)
+        
+        # Sync Zoom
+        self.left_viewer.zoomChanged.connect(self.sync_zoom)
+        self.right_viewer.zoomChanged.connect(self.sync_zoom)
+        
+        grid_layout.addWidget(self.label_left, 0, 0)
+        grid_layout.addWidget(self.label_right, 0, 1)
+        grid_layout.addWidget(self.left_viewer, 1, 0)
+        grid_layout.addWidget(self.right_viewer, 1, 1)
+        
+        main_layout.addLayout(grid_layout)
+        
+        self.is_syncing = False
+
+    def sync_h_scroll(self, value, source='left'):
+        """Synchronise le scroll horizontal pour créer une continuité"""
+        if self.is_syncing: return
+        self.is_syncing = True
+        
+        if source == 'left':
+            # Si on bouge à gauche, la droite suit avec le même offset relatif
+            # Pour la continuité : si l'image de gauche finit au milieu de son viewer,
+            # celle de droite doit commencer au milieu de son viewer.
+            self.right_viewer.horizontalScrollBar().setValue(value)
+        else:
+            self.left_viewer.horizontalScrollBar().setValue(value)
+            
+        self.is_syncing = False
+
+    def sync_v_scroll(self, value):
+        if self.is_syncing: return
+        self.is_syncing = True
+        self.left_viewer.verticalScrollBar().setValue(value)
+        self.right_viewer.verticalScrollBar().setValue(value)
+        self.is_syncing = False
+
+    def sync_zoom(self, zoom):
+        if self.is_syncing: return
+        self.is_syncing = True
+        self.left_viewer.zoom_factor = zoom
+        self.right_viewer.zoom_factor = zoom
+        self.left_viewer.update_viewer()
+        self.right_viewer.update_viewer()
+        self.is_syncing = False
+
+    def set_images(self, original_pixmap, compressed_pixmap=None, reset_view=True):
+        self.left_viewer.set_pixmap(original_pixmap)
+        if compressed_pixmap:
+            self.right_viewer.set_pixmap(compressed_pixmap)
+        else:
+            self.right_viewer.set_pixmap(original_pixmap)
+        
+        # Force a center view after loading only if requested
+        if reset_view:
+            self.reset_view()
+
+    def reset_view(self):
+        """Réinitialise le zoom et centre les vues"""
+        # Centrage différé pour laisser le temps au layout de se mettre à jour
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(50, self.left_viewer.center_image)
+        QTimer.singleShot(50, self.right_viewer.center_image)
+
+    # --- Fin Signaux ---
+
+class SortableTableWidgetItem(QTableWidgetItem):
+    """Item de tableau personnalisé pour trier sur une valeur numérique (ou autre clé)"""
+    def __init__(self, text, sort_key):
+        super().__init__(text)
+        self.sort_key = sort_key
+
+    def __lt__(self, other):
+        return self.sort_key < other.sort_key
+
+class TableColorDelegate(QStyledItemDelegate):
+    """Delegate pour garder la couleur du texte même lors de la sélection"""
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # Si une couleur de texte (ForegroundRole) est définie, on l'utilise pour la sélection aussi
+        fg = index.data(Qt.ItemDataRole.ForegroundRole)
+        if fg and isinstance(fg, QColor):
+            option.palette.setColor(QPalette.ColorRole.HighlightedText, fg)
+        elif fg and hasattr(fg, 'color'): # Parfois c'est une QBrush
+            option.palette.setColor(QPalette.ColorRole.HighlightedText, fg.color())
+
 
 class WorkerSignals(QObject):
     """Signaux pour le worker de chargement d'image"""
     finished = pyqtSignal(QImage)
     error = pyqtSignal()
+
+class CompressionSignals(QObject):
+    """Signaux pour le worker de compression"""
+    finished = pyqtSignal(int, int, QPixmap) # index, new_size, pixmap
+
+class CompressionWorker(QRunnable):
+    """Worker pour compresser une image en arrière-plan"""
+    def __init__(self, index, path, quality, format_name, original_size):
+        super().__init__()
+        self.index = index
+        self.path = path
+        self.quality = quality
+        self.format_name = format_name
+        self.original_size = original_size
+        self.signals = CompressionSignals()
+
+    def run(self):
+        try:
+            img = QImage(self.path)
+            if img.isNull():
+                self.signals.finished.emit(self.index, self.original_size, QPixmap())
+                return
+                
+            from PyQt6.QtCore import QBuffer, QIODevice
+            buffer = QBuffer()
+            buffer.open(QIODevice.OpenModeFlag.ReadWrite)
+            
+            out_format = self.format_name
+            if out_format == "JPG": out_format = "JPEG"
+            
+            q_writer = QImageWriter(buffer, out_format.encode())
+            
+            if out_format == "PNG":
+                q_writer.setQuality(9 if self.quality >= 100 else int(self.quality / 11))
+            else:
+                q_set = self.quality if self.quality <= 100 else 100
+                q_writer.setQuality(q_set)
+                
+            if q_writer.write(img):
+                new_size = buffer.size()
+                # Safety check
+                if self.quality <= 100 and new_size > self.original_size:
+                    self.signals.finished.emit(self.index, self.original_size, QPixmap())
+                else:
+                    pix = QPixmap()
+                    pix.loadFromData(buffer.data())
+                    self.signals.finished.emit(self.index, new_size, pix)
+            else:
+                self.signals.finished.emit(self.index, self.original_size, QPixmap())
+        except Exception:
+            self.signals.finished.emit(self.index, self.original_size, QPixmap())
 
 class ThumbnailLoader(QRunnable):
     """Worker pour charger les images en arrière-plan"""
@@ -150,26 +433,25 @@ class ImageThumbnail(QFrame):
         size_label.setStyleSheet("font-size: 10px; color: #aaa; font-weight: bold;")
         layout.addWidget(size_label)
         
-        # Bouton de suppression
+        # Case à cocher pour la sélection (suppression/déplacement)
         if show_delete:
-            self.delete_btn = QPushButton(" [ ] ")
-            self.delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            self.delete_btn.setToolTip("Mark for deletion")
-            self.delete_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {STYLE_CONFIG['bg_button']};
+            self.delete_check = QCheckBox("")
+            self.delete_check.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.delete_check.setToolTip("Mark for deletion or move")
+            self.delete_check.setStyleSheet(f"""
+                QCheckBox {{
                     color: {STYLE_CONFIG['text_main']};
-                    border: 1px solid {STYLE_CONFIG['border']};
+                    font-size: 10px;
+                    font-weight: bold;
                     padding: 4px;
-                    border-radius: 4px;
-                    font-size: 11px;
                 }}
-                QPushButton:hover {{
-                    background-color: {STYLE_CONFIG['border_light']};
+                QCheckBox::indicator {{
+                    width: 18px;
+                    height: 18px;
                 }}
             """)
-            self.delete_btn.clicked.connect(self.toggle_delete_mark)
-            layout.addWidget(self.delete_btn)
+            self.delete_check.toggled.connect(self.toggle_delete_mark)
+            layout.addWidget(self.delete_check, 0, Qt.AlignmentFlag.AlignCenter)
         
         self.setLayout(layout)
         self.update_style()
@@ -218,35 +500,17 @@ class ImageThumbnail(QFrame):
         else:
              self.on_image_error()
     
-    def toggle_delete_mark(self):
-        self.marked_for_deletion = not self.marked_for_deletion
-        if self.marked_for_deletion:
-            self.delete_btn.setText(" [X] ")
-            self.delete_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: #db3d21;
-                    color: white;
-                    border: 1px solid {STYLE_CONFIG['border']};
-                    padding: 4px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                }}
-            """)
+    def toggle_delete_mark(self, checked=None):
+        if checked is not None:
+            self.marked_for_deletion = checked
         else:
-            self.delete_btn.setText(" [ ] ")
-            self.delete_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {STYLE_CONFIG['bg_button']};
-                    color: {STYLE_CONFIG['text_main']};
-                    border: 1px solid {STYLE_CONFIG['border']};
-                    padding: 4px;
-                    border-radius: 4px;
-                    font-size: 11px;
-                }}
-                QPushButton:hover {{
-                    background-color: {STYLE_CONFIG['border_light']};
-                }}
-            """)
+            self.marked_for_deletion = not self.marked_for_deletion
+            # Si on toggle manuellement, on met à jour la checkbox
+            if hasattr(self, 'delete_check'):
+                self.delete_check.blockSignals(True)
+                self.delete_check.setChecked(self.marked_for_deletion)
+                self.delete_check.blockSignals(False)
+                
         self.update_style()
         self.deleteRequested.emit(self.file_path)
     
@@ -569,6 +833,9 @@ class TextureCleaner(QMainWindow):
         self.folder_files = []  # Liste des fichiers du dossier avec chemins complets
         self.current_folder_path = ""  # Chemin du dossier actuel
         self.resize_folder_path = "" # Chemin du dossier pour l'onglet Resize
+        self.comp_folder_path = "" # Chemin du dossier pour l'onglet Compression
+        
+        self.comp_files = [] # Liste des images pour l'onglet Compression
         
         # ThreadPool pour le chargement d'images
         self.thread_pool = QThreadPool()
@@ -589,7 +856,7 @@ class TextureCleaner(QMainWindow):
         
         # --- Onglet 1: Nettoyage des fichiers ---
         self.cleaner_tab = QWidget()
-        self.tabs.addTab(self.cleaner_tab, "Nettoyage des fichiers")
+        self.tabs.addTab(self.cleaner_tab, "Spot unused data")
         
         # Layout pour l'onglet de nettoyage (ancien main_layout)
         cleaner_layout = QVBoxLayout()
@@ -701,17 +968,20 @@ class TextureCleaner(QMainWindow):
         left_layout.addLayout(search_filter_layout)
         
         # Déjà initialisé plus haut
-        self.resize_table.setColumnCount(3)
-        self.resize_table.setHorizontalHeaderLabels(["File", "Dimensions (Old > New)", "Weight (Old > New)"])
+        self.resize_table.setColumnCount(4)
+        self.resize_table.setHorizontalHeaderLabels(["File", "Dimensions", "Weight", "Gain"])
         
         # Config tableau style handled by global QSS
         self.resize_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.resize_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.resize_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.resize_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.resize_table.setColumnWidth(3, 80)
         self.resize_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.resize_table.verticalHeader().setVisible(False)
         self.resize_table.cellDoubleClicked.connect(self.open_image_popup_from_table) # Popup double clic
         self.resize_table.itemSelectionChanged.connect(self.reset_resize_options_ui) # Reset UI on selection change
+        self.resize_table.setSortingEnabled(True)
         
         left_layout.addWidget(self.resize_table)
         
@@ -841,11 +1111,29 @@ class TextureCleaner(QMainWindow):
         # --- Onglet 3: Compression ---
         self.compression_tab = QWidget()
         self.tabs.addTab(self.compression_tab, "Compression")
-        compression_layout = QVBoxLayout()
-        self.compression_tab.setLayout(compression_layout)
-        label_compression = QLabel("Fonctionnalité Compression à venir")
-        label_compression.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        compression_layout.addWidget(label_compression)
+        
+        comp_main_layout = QVBoxLayout()
+        comp_main_layout.setContentsMargins(0, 0, 0, 0)
+        comp_main_layout.setSpacing(0)
+        self.compression_tab.setLayout(comp_main_layout)
+        
+        # Splitter pour les 3 colonnes de compression
+        self.comp_splitter = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Colonne 1: Liste des images
+        self.comp_col1 = self.create_comp_list_column()
+        self.comp_splitter.addWidget(self.comp_col1)
+        
+        # Colonne 2: Réglages
+        self.comp_col2 = self.create_comp_settings_column()
+        self.comp_splitter.addWidget(self.comp_col2)
+        
+        # Colonne 3: Visionneuse
+        self.comp_col3 = self.create_comp_preview_column()
+        self.comp_splitter.addWidget(self.comp_col3)
+        
+        self.comp_splitter.setSizes([450, 300, 850])
+        comp_main_layout.addWidget(self.comp_splitter)
         
         # Style global - Mode Blender Pro
         self.setStyleSheet(f"""
@@ -1018,6 +1306,13 @@ class TextureCleaner(QMainWindow):
                 border: 1px solid {STYLE_CONFIG['border']};
                 border-radius: 4px;
                 outline: none;
+                selection-background-color: #5c4326;
+                selection-color: white;
+            }}
+            
+            QTableWidget::item:selected {{
+                background-color: #5c4326;
+                border: 1px solid {STYLE_CONFIG['accent']};
             }}
         """)
     
@@ -1350,6 +1645,9 @@ class TextureCleaner(QMainWindow):
         
         if folder:
             self.current_folder_path = folder
+            # Sync avec les autres onglets
+            self.resize_folder_path = folder
+            self.comp_folder_path = folder
             self.scan_folder(folder)
 
     def reload_folder_files(self):
@@ -2021,22 +2319,40 @@ class TextureCleaner(QMainWindow):
     # --- Gestion Onglet Resize ---
     
     def on_tab_changed(self, index):
-        """Gestion du changement d'onglet"""
-        if index == 1: # Onglet Resize
-            # Si aucun dossier spécifique n'est défini pour resize, 
-            # on prend celui du cleaner si disponible
-            if not self.resize_folder_path and self.current_folder_path:
-                self.resize_folder_path = self.current_folder_path
+        """Gestion du changement d'onglet avec synchronisation du dossier de travail"""
+        # On cherche un dossier déjà ouvert dans n'importe quel onglet
+        active_path = self.current_folder_path or self.resize_folder_path or self.comp_folder_path
+        if not active_path:
+            return
+
+        if index == 0: # Onglet Nettoyage
+            if not self.current_folder_path or self.current_folder_path != active_path:
+                self.current_folder_path = active_path
+                self.scan_folder(active_path)
+            elif not self.folder_files and self.current_folder_path:
+                self.scan_folder(self.current_folder_path)
+
+        elif index == 1: # Onglet Resize
+            if not self.resize_folder_path or self.resize_folder_path != active_path:
+                self.resize_folder_path = active_path
                 self.populate_resize_list()
-            elif self.resize_folder_path:
-                # Si déjà un dossier, on rafraichit au cas où
-                if self.resize_table.rowCount() == 0:
-                    self.populate_resize_list()
+            elif self.resize_table.rowCount() == 0 and self.resize_folder_path:
+                self.populate_resize_list()
+
+        elif index == 2: # Onglet Compression
+            if not self.comp_folder_path or self.comp_folder_path != active_path:
+                self.comp_folder_path = active_path
+                self.refresh_comp_list()
+            elif not self.comp_files and self.comp_folder_path:
+                self.refresh_comp_list()
             
     def select_resize_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Sélectionner dossier pour redimensionnement")
         if folder:
             self.resize_folder_path = folder
+            # Sync avec les autres onglets
+            self.current_folder_path = folder
+            self.comp_folder_path = folder
             self.populate_resize_list()
             
     def refresh_resize_list(self):
@@ -2044,6 +2360,9 @@ class TextureCleaner(QMainWindow):
             
     def populate_resize_list(self):
         """Remplit la liste des fichiers pour l'onglet Resize"""
+    def populate_resize_list(self):
+        """Remplit la liste des fichiers pour l'onglet Resize"""
+        self.resize_table.setSortingEnabled(False)
         self.resize_table.setRowCount(0)
         
         if not self.resize_folder_path or not os.path.exists(self.resize_folder_path):
@@ -2080,18 +2399,25 @@ class TextureCleaner(QMainWindow):
                 self.resize_table.setItem(i, 0, item_name)
                 
                 # Colonne 2: Dimensions init
-                item_dim = QTableWidgetItem(f"{size.width()}x{size.height()} px")
+                sort_dim = size.width() * size.height()
+                item_dim = SortableTableWidgetItem(f"{size.width()}x{size.height()} px", sort_dim)
                 self.resize_table.setItem(i, 1, item_dim)
                 
                 # Colonne 3: Poids init
-                item_size = QTableWidgetItem(ImageThumbnail.format_file_size(file_size))
+                item_size = SortableTableWidgetItem(ImageThumbnail.format_file_size(file_size), file_size)
                 self.resize_table.setItem(i, 2, item_size)
+                
+                # Colonne 4: Gain init
+                item_gain = SortableTableWidgetItem("-", 0)
+                item_gain.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                self.resize_table.setItem(i, 3, item_gain)
                 
             except Exception as e:
                 print(f"Erreur lecture {path}: {e}")
                 
         # Lancer la prévisualisation initiale
         self.update_resize_preview()
+        self.resize_table.setSortingEnabled(True)
         self.filter_resize_table()
 
     def filter_resize_table(self):
@@ -2208,11 +2534,16 @@ class TextureCleaner(QMainWindow):
 
         total_orig_size = 0
         total_new_size = 0
+        
+        # Disable sorting temporarily to avoid rows jumping during update if sorted by dynamic values
+        was_sorting = self.resize_table.isSortingEnabled()
+        self.resize_table.setSortingEnabled(False)
 
         for i in range(count):
             item_name = self.resize_table.item(i, 0)
             item_dim = self.resize_table.item(i, 1)
             item_size = self.resize_table.item(i, 2)
+            item_gain = self.resize_table.item(i, 3)
             if not item_name: continue
             
             # Récupérer données image
@@ -2230,8 +2561,19 @@ class TextureCleaner(QMainWindow):
                 item_name.setForeground(Qt.GlobalColor.white)
                 item_dim.setForeground(Qt.GlobalColor.white)
                 item_size.setForeground(Qt.GlobalColor.white)
+                item_gain.setForeground(Qt.GlobalColor.white)
                 item_dim.setText(f"{orig_w}x{orig_h} px")
+                # Reset sort keys to original values
+                if isinstance(item_dim, SortableTableWidgetItem):
+                    item_dim.sort_key = orig_w * orig_h
+                
                 item_size.setText(ImageThumbnail.format_file_size(orig_file_size))
+                if isinstance(item_size, SortableTableWidgetItem):
+                     item_size.sort_key = orig_file_size
+
+                item_gain.setText("-")
+                if isinstance(item_gain, SortableTableWidgetItem):
+                    item_gain.sort_key = 0
                 continue
 
             ratio_mode = item_name.data(Qt.ItemDataRole.UserRole + 11)
@@ -2273,11 +2615,27 @@ class TextureCleaner(QMainWindow):
             # Mise à jour UI Tableau
             # Col 2: Dimensions
             item_dim.setText(f"{orig_w}x{orig_h} ➜ {new_w}x{new_h}")
+            if isinstance(item_dim, SortableTableWidgetItem):
+                 # Sort by new dimensions (or maybe ratio of change? stick to pixel count)
+                 item_dim.sort_key = new_pixels
             
             # Col 3: Poids
             orig_fmt = ImageThumbnail.format_file_size(orig_file_size)
             new_fmt = ImageThumbnail.format_file_size(est_file_size)
+            
+            # Calcul du gain pour la ligne
+            gain_row = orig_file_size - est_file_size
+            pct_row = (gain_row / orig_file_size * 100) if orig_file_size > 0 else 0
+            sign = "-" if gain_row >= 0 else "+"
+            
             item_size.setText(f"{orig_fmt} ➜ ~{new_fmt}")
+            if isinstance(item_size, SortableTableWidgetItem):
+                item_size.sort_key = est_file_size
+            
+            # Col 4: Gain
+            item_gain.setText(f"{sign}{abs(pct_row):.1f}%")
+            if isinstance(item_gain, SortableTableWidgetItem):
+                item_gain.sort_key = pct_row # Sort by reduction percentage (negative is better/more reduction)
             
             # Couleur dynamique
             if est_file_size < orig_file_size:
@@ -2293,11 +2651,18 @@ class TextureCleaner(QMainWindow):
             item_name.setForeground(color)
             item_dim.setForeground(color)
             item_size.setForeground(color)
+            item_gain.setForeground(color)
         
         # Mise à jour Stats Globales
         gain = total_orig_size - total_new_size
         pct_gain = (gain / total_orig_size * 100) if total_orig_size > 0 else 0
         
+        # Restore sorting
+        self.resize_table.setSortingEnabled(was_sorting)
+
+        # Restore sorting
+        self.resize_table.setSortingEnabled(was_sorting)
+
         self.global_stats_label.setText(
             f"Optimization result : {ImageThumbnail.format_file_size(total_orig_size)} ➜ ~{ImageThumbnail.format_file_size(total_new_size)} "
             f"| Save : {ImageThumbnail.format_file_size(gain)} ({pct_gain:.1f}%)"
@@ -2493,6 +2858,578 @@ class TextureCleaner(QMainWindow):
         if overwrite:
             self.refresh_resize_list()
 
+    # --- Gestion Onglet Compression ---
+
+    def create_comp_settings_column(self):
+        col = QGroupBox("COMPRESSION SETTINGS")
+        layout = QVBoxLayout(col)
+        layout.setContentsMargins(10, 15, 10, 10)
+        layout.setSpacing(15)
+        
+        # Format
+        layout.addWidget(QLabel("Output Format:"))
+        self.comp_format_combo = QComboBox()
+        self.comp_format_combo.addItems(["Keep Original", "PNG", "WebP", "JPG"])
+        self.comp_format_combo.currentIndexChanged.connect(self.clear_comp_previews)
+        layout.addWidget(self.comp_format_combo)
+        
+        # Quality Slider
+        quality_header_layout = QHBoxLayout()
+        quality_header_layout.addWidget(QLabel("Quality / Compression :"))
+        self.quality_val_label = QLabel("100% (Lossless)")
+        self.quality_val_label.setStyleSheet(f"color: {STYLE_CONFIG['accent']}; font-weight: bold;")
+        quality_header_layout.addStretch()
+        quality_header_layout.addWidget(self.quality_val_label)
+        layout.addLayout(quality_header_layout)
+        
+        self.comp_quality_slider = QSlider(Qt.Orientation.Horizontal)
+        self.comp_quality_slider.setRange(0, 120)
+        self.comp_quality_slider.setValue(100)
+        self.comp_quality_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.comp_quality_slider.setTickInterval(20)
+        self.comp_quality_slider.valueChanged.connect(self.update_quality_label)
+        layout.addWidget(self.comp_quality_slider)
+        
+        slider_tips = QHBoxLayout()
+        slider_tips.addWidget(QLabel("Max Comp (Lossy)"))
+        slider_tips.addStretch()
+        slider_tips.addWidget(QLabel("Original"))
+        for i in range(slider_tips.count()):
+            widget = slider_tips.itemAt(i).widget()
+            if widget: widget.setStyleSheet("color: #666; font-size: 9px;")
+        layout.addLayout(slider_tips)
+        
+        layout.addSpacing(20)
+        
+        # Stats Area
+        stats_group = QGroupBox("OPTIMIZATION SUMMARY")
+        stats_layout = QVBoxLayout(stats_group)
+        self.comp_total_size_label = QLabel("Original Size: 0 MB")
+        self.comp_new_size_label = QLabel("Estimated Size: 0 MB")
+        self.comp_gain_label = QLabel("Total Gain: 0 MB (0%)")
+        self.comp_gain_label.setStyleSheet(f"color: {STYLE_CONFIG['status_green']}; font-weight: bold;")
+        
+        stats_layout.addWidget(self.comp_total_size_label)
+        stats_layout.addWidget(self.comp_new_size_label)
+        stats_layout.addWidget(self.comp_gain_label)
+        layout.addWidget(stats_group)
+        
+        # Legend Area
+        legend_group = QGroupBox("HELP & LEGEND")
+        legend_layout = QVBoxLayout(legend_group)
+        legend_layout.setSpacing(5)
+        
+        l1 = QLabel("• WebP / JPG : 0% (Crushed) ➜ 100% (Lossless Quality)")
+        l2 = QLabel("• PNG : Slider 0-100% maps to level 0-9 (Compression effort)")
+        l3 = QLabel("• Safety : If result > original, original is ALWAYS kept.")
+        
+        for l in [l1, l2, l3]:
+            l.setStyleSheet("color: #bbb; font-size: 10px;")
+            legend_layout.addWidget(l)
+            
+        layout.addWidget(legend_group)
+        
+        layout.addStretch()
+        
+        # Action buttons
+        self.preview_comp_btn = QPushButton("CALCULATE PREVIEW")
+        self.preview_comp_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_panel']};
+                color: {STYLE_CONFIG['text_highlight']};
+                padding: 10px;
+                border: 1px solid {STYLE_CONFIG['border_light']};
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['border_light']};
+            }}
+        """)
+        self.preview_comp_btn.clicked.connect(self.execute_compression_preview)
+        layout.addWidget(self.preview_comp_btn)
+        
+        self.start_comp_btn = QPushButton("EXPORT COMPRESSED")
+        self.start_comp_btn.setEnabled(False)
+        self.start_comp_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {STYLE_CONFIG['bg_button']};
+                color: {STYLE_CONFIG['accent']};
+                font-weight: bold;
+                padding: 12px;
+                border: 2px solid {STYLE_CONFIG['accent']};
+            }}
+            QPushButton:hover {{
+                background-color: {STYLE_CONFIG['accent']};
+                color: black;
+            }}
+            QPushButton:disabled {{
+                border-color: #555;
+                color: #777;
+            }}
+        """)
+        self.start_comp_btn.clicked.connect(self.export_compressed_files)
+        layout.addWidget(self.start_comp_btn)
+        
+        return col
+
+    def update_quality_label(self, value):
+        if value == 120:
+            text = "ORIGINAL (No Change)"
+        elif value == 100:
+            text = "100% (Lossless)"
+        else:
+            text = f"{value}% (Lossy)"
+        self.quality_val_label.setText(text)
+        # Note: We don't clear previews here anymore to avoid flicker, 
+        # use CALCULATE PREVIEW to update.
+
+    def clear_comp_previews(self):
+        """Réinitialise les gains calculés car les réglages ont changé"""
+        for f in self.comp_files:
+            f['new_size'] = None
+            f['compressed_pixmap'] = None
+        self.update_comp_table()
+        self.start_comp_btn.setEnabled(False)
+        self.update_global_comp_stats()
+
+    def create_comp_preview_column(self):
+        col = QWidget()
+        layout = QVBoxLayout(col)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.comp_viewer = SyncedImageViewer()
+        layout.addWidget(self.comp_viewer)
+        
+        # Zoom tips
+        help_label = QLabel("Use Mouse Wheel to Zoom | Drag to Pan")
+        help_label.setStyleSheet("color: #666; font-size: 10px; padding: 5px;")
+        help_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(help_label)
+        
+        return col
+
+    def select_comp_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder for Compression")
+        if folder:
+            self.comp_folder_path = folder
+            # Sync avec les autres onglets
+            self.current_folder_path = folder
+            self.resize_folder_path = folder
+            self.refresh_comp_list()
+
+    def refresh_comp_list(self):
+        if not self.comp_folder_path: return
+        
+        self.comp_files = []
+        extensions = ('.png', '.jpg', '.jpeg', '.webp', '.bmp', '.tiff', '.tif')
+        
+        if os.path.exists(self.comp_folder_path):
+            for root, dirs, files in os.walk(self.comp_folder_path):
+                for file in files:
+                    if file.lower().endswith(extensions):
+                        path = os.path.join(root, file)
+                        try:
+                            # Use relative path for display to distinguish files in subfolders
+                            rel_name = os.path.relpath(path, self.comp_folder_path)
+                            
+                            reader = QImageReader(path)
+                            size = reader.size()
+                            self.comp_files.append({
+                                'name': rel_name,
+                                'path': path,
+                                'size': os.path.getsize(path),
+                                'width': size.width(),
+                                'height': size.height(),
+                                'enabled': True,
+                                'new_size': None,
+                                'compressed_pixmap': None
+                            })
+                        except:
+                            pass
+        
+        self.update_comp_table()
+        self.update_global_comp_stats()
+
+    def update_comp_table(self):
+        self.comp_table.setRowCount(0)
+        for i, file_info in enumerate(self.comp_files):
+            self.comp_table.insertRow(i)
+            
+            # Checkbox
+            check = QCheckBox()
+            check.setChecked(file_info['enabled'])
+            check.toggled.connect(lambda checked, idx=i: self.on_comp_check_toggled(idx, checked))
+            
+            check_widget = QWidget()
+            check_layout = QHBoxLayout(check_widget)
+            check_layout.addWidget(check)
+            check_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            check_layout.setContentsMargins(0, 0, 0, 0)
+            
+            self.comp_table.setCellWidget(i, 0, check_widget)
+            
+            # File Info
+            self.comp_table.setItem(i, 1, QTableWidgetItem(file_info['name']))
+            
+            # Dimensions
+            dim_item = QTableWidgetItem(f"{file_info['width']}x{file_info['height']} px")
+            dim_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.comp_table.setItem(i, 2, dim_item)
+            
+            # Size & Gain
+            orig_size_str = ImageThumbnail.format_file_size(file_info['size'])
+            size_text = orig_size_str
+            
+            if file_info['new_size'] is not None:
+                new_size_str = ImageThumbnail.format_file_size(file_info['new_size'])
+                diff = file_info['size'] - file_info['new_size']
+                pct = (diff / file_info['size'] * 100) if file_info['size'] > 0 else 0
+                
+                size_text = f"{orig_size_str} ➜ {new_size_str}"
+                gain_text = f" (+{pct:.1f}%)" if diff < 0 else f" (-{pct:.1f}%)"
+                
+                gain_item = QTableWidgetItem(size_text + gain_text)
+                if diff > 0:
+                    gain_item.setForeground(QColor(STYLE_CONFIG['status_green']))
+                elif diff < 0:
+                    gain_item.setForeground(QColor(STYLE_CONFIG['status_red']))
+            else:
+                gain_item = QTableWidgetItem(size_text)
+                
+            gain_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.comp_table.setItem(i, 3, gain_item)
+            
+        self.filter_comp_table()
+
+    def update_global_comp_stats(self):
+        total_orig = sum(f['size'] for f in self.comp_files if f['enabled'])
+        total_new = sum(f['new_size'] if f['new_size'] is not None else f['size'] for f in self.comp_files if f['enabled'])
+        
+        self.comp_total_size_label.setText(f"Original Volume: {ImageThumbnail.format_file_size(total_orig)}")
+        self.comp_new_size_label.setText(f"Planned Volume: {ImageThumbnail.format_file_size(total_new)}")
+        
+        gain = total_orig - total_new
+        pct = (gain / total_orig * 100) if total_orig > 0 else 0
+        self.comp_gain_label.setText(f"Total Gain: {ImageThumbnail.format_file_size(gain)} ({pct:.1f}%)")
+        
+        if gain > 0:
+            self.comp_gain_label.setStyleSheet(f"color: {STYLE_CONFIG['status_green']}; font-weight: bold;")
+        elif gain < 0:
+            self.comp_gain_label.setStyleSheet(f"color: {STYLE_CONFIG['status_red']}; font-weight: bold;")
+        else:
+            self.comp_gain_label.setStyleSheet("color: #aaa; font-weight: bold;")
+
+    def on_comp_check_toggled(self, idx, checked):
+        if 0 <= idx < len(self.comp_files):
+            self.comp_files[idx]['enabled'] = checked
+            self.update_global_comp_stats()
+            self.filter_comp_table()
+
+    def filter_comp_table(self):
+        if not hasattr(self, 'comp_table'):
+            return
+            
+        search = self.comp_search.text().lower()
+        show_selected_only = self.comp_show_selected_only.isChecked()
+        
+        for i in range(self.comp_table.rowCount()):
+            name = self.comp_table.item(i, 1).text().lower()
+            is_enabled = self.comp_files[i]['enabled']
+            
+            match_search = search in name
+            match_filter = True
+            if show_selected_only:
+                match_filter = is_enabled
+            
+            self.comp_table.setRowHidden(i, not (match_search and match_filter))
+
+    def execute_compression_preview(self):
+        """Calcule une prévisualisation de la compression en arrière-plan"""
+        to_process_indices = [i for i, f in enumerate(self.comp_files) if f['enabled']]
+        if not to_process_indices:
+            QMessageBox.warning(self, "No Selection", "Please select at least one image.")
+            return
+
+        quality = self.comp_quality_slider.value()
+        format_idx = self.comp_format_combo.currentIndex()
+        
+        # UI state
+        self.preview_comp_btn.setEnabled(False)
+        self.start_comp_btn.setEnabled(False)
+        
+        self.comp_progress = QProgressBar()
+        self.comp_progress.setRange(0, len(to_process_indices))
+        self.comp_progress.setValue(0)
+        self.statusBar().addPermanentWidget(self.comp_progress)
+        self.statusBar().showMessage("Calculating previews in background...")
+
+        self.comp_processed_count = 0
+        self.comp_total_to_process = len(to_process_indices)
+
+        formats = [None, "PNG", "WEBP", "JPG"]
+
+        for idx in to_process_indices:
+            f = self.comp_files[idx]
+            
+            if quality == 120 and format_idx == 0:
+                # No change required
+                self.on_compression_finished(idx, f['size'], QPixmap())
+            else:
+                # Dispatch to thread pool
+                out_format = formats[format_idx] if format_idx != 0 else os.path.splitext(f['name'])[1][1:].upper()
+                
+                worker = CompressionWorker(idx, f['path'], quality, out_format, f['size'])
+                worker.signals.finished.connect(self.on_compression_finished)
+                self.thread_pool.start(worker)
+
+    def on_compression_finished(self, idx, new_size, pixmap):
+        """Callback quand une image a été compressée en arrière-plan"""
+        if idx >= len(self.comp_files): return
+        
+        self.comp_files[idx]['new_size'] = new_size
+        if pixmap and not pixmap.isNull():
+            self.comp_files[idx]['compressed_pixmap'] = pixmap
+        else:
+            self.comp_files[idx]['compressed_pixmap'] = None
+            
+        self.comp_processed_count += 1
+        self.comp_progress.setValue(self.comp_processed_count)
+        
+        # Mise à jour ciblée du tableau pour éviter les lags
+        self.update_table_row_info(idx)
+        
+        # Update global stats and progress sparingly
+        if self.comp_processed_count % 3 == 0 or self.comp_processed_count == self.comp_total_to_process:
+            self.update_global_comp_stats()
+            
+        # FORCE UPDATE PREVIEW if this specific file is the one we are looking at
+        selection = self.comp_table.selectedItems()
+        if selection and selection[0].row() == idx:
+            self.on_comp_row_changed()
+            
+        if self.comp_processed_count == self.comp_total_to_process:
+            self.statusBar().removeWidget(self.comp_progress)
+            self.statusBar().showMessage("Preview calculation complete.", 3000)
+            self.preview_comp_btn.setEnabled(True)
+            self.start_comp_btn.setEnabled(True)
+
+    def update_table_row_info(self, idx):
+        """Met à jour uniquement les données d'une ligne sans reconstruire tout le tableau"""
+        if idx >= len(self.comp_files): return
+        file_info = self.comp_files[idx]
+        
+        # On cherche l'item correspondant à la ligne logique 'idx'
+        # Comme on ne vide pas le tableau entre les finitions de workers, l'index de ligne corresp à idx si pas de tri
+        if idx < self.comp_table.rowCount():
+            # Size & Gain (Colonne 3)
+            orig_size_str = ImageThumbnail.format_file_size(file_info['size'])
+            if file_info['new_size'] is not None:
+                new_size_str = ImageThumbnail.format_file_size(file_info['new_size'])
+                diff = file_info['size'] - file_info['new_size']
+                pct = (diff / file_info['size'] * 100) if file_info['size'] > 0 else 0
+                size_text = f"{orig_size_str} ➜ {new_size_str}"
+                gain_text = f" (+{pct:.1f}%)" if diff < 0 else f" (-{pct:.1f}%)"
+                
+                gain_item = QTableWidgetItem(size_text + gain_text)
+                if diff > 0:
+                    gain_item.setForeground(QColor(STYLE_CONFIG['status_green']))
+                elif diff < 0:
+                    gain_item.setForeground(QColor(STYLE_CONFIG['status_red']))
+                else:
+                    gain_item.setForeground(QColor(STYLE_CONFIG['text_main']))
+            else:
+                gain_item = QTableWidgetItem(orig_size_str)
+                
+            gain_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            self.comp_table.setItem(idx, 3, gain_item)
+
+    def export_compressed_files(self):
+        to_process = [f for f in self.comp_files if f['enabled']]
+        if not to_process: return
+        
+        # Dialog
+        msg = QMessageBox(self)
+        msg.setWindowTitle("EXPORT OPTIONS")
+        msg.setText(f"Export {len(to_process)} optimized images.\nChoose destination method:")
+        
+        btn_overwrite = msg.addButton("OVERWRITE ORIGINALS", QMessageBox.ButtonRole.DestructiveRole)
+        btn_new_folder = msg.addButton("SAVE TO NEW FOLDER", QMessageBox.ButtonRole.ActionRole)
+        btn_cancel = msg.addButton("CANCEL", QMessageBox.ButtonRole.RejectRole)
+        
+        msg.exec()
+        btn = msg.clickedButton()
+        
+        if btn == btn_cancel: return
+        
+        dest_folder = None
+        if btn == btn_new_folder:
+            dest_folder = QFileDialog.getExistingDirectory(self, "Select Export Directory")
+            if not dest_folder: return
+        else:
+            confirm = QMessageBox.question(self, "CONFIRM", "Are you sure you want to OVERWRITE the original files?", 
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if confirm != QMessageBox.StandardButton.Yes: return
+
+        # Perform save
+        success = 0
+        quality = self.comp_quality_slider.value()
+        format_idx = self.comp_format_combo.currentIndex()
+        formats = [None, "PNG", "WEBP", "JPG"]
+        ext_map = ["", ".png", ".webp", ".jpg"]
+
+        for f in to_process:
+            try:
+                # Use stored preview data if available and smaller
+                if f['new_size'] is not None and f['new_size'] < f['size']:
+                    # Re-run save with same params to file
+                    img = QImage(f['path'])
+                    if img.isNull(): continue
+                    
+                    base_name = os.path.splitext(f['name'])[0]
+                    if format_idx == 0:
+                        out_ext = os.path.splitext(f['name'])[1]
+                        out_format = out_ext[1:].upper()
+                        if out_format == "JPG": out_format = "JPEG"
+                    else:
+                        out_ext = ext_map[format_idx]
+                        out_format = formats[format_idx]
+                    
+                    save_name = base_name + out_ext
+                    save_path = os.path.join(dest_folder if dest_folder else os.path.dirname(f['path']), save_name)
+                    
+                    q_val = quality if quality <= 100 else 100
+                    if out_format == "PNG":
+                        q_val = 9 if quality >= 100 else int(quality / 11)
+                        
+                    if img.save(save_path, out_format, q_val):
+                        success += 1
+                else:
+                    # Fallback or original copy
+                    base_name = os.path.splitext(f['name'])[0]
+                    out_ext = os.path.splitext(f['name'])[1] if format_idx == 0 else ext_map[format_idx]
+                    save_name = base_name + out_ext
+                    save_path = os.path.join(dest_folder if dest_folder else os.path.dirname(f['path']), save_name)
+                    
+                    if save_path != f['path']:
+                        shutil.copy2(f['path'], save_path)
+                    success += 1
+                    
+            except Exception as e:
+                print(f"Export error: {e}")
+                
+        QMessageBox.information(self, "COMPLETED", f"Successfully exported {success} files.")
+        if btn == btn_overwrite:
+            self.refresh_comp_list()
+
+    def on_comp_row_changed(self):
+        selection = self.comp_table.selectedItems()
+        if not selection: return
+        
+        row = selection[0].row()
+        file_info = self.comp_files[row]
+        
+        # Detection pour ne pas reset le zoom si c'est le même fichier (re-preview)
+        current_path = file_info['path']
+        should_reset = True
+        if hasattr(self, '_last_selected_comp_path') and self._last_selected_comp_path == current_path:
+            should_reset = False
+        self._last_selected_comp_path = current_path
+        
+        # Load and set images in viewer
+        orig_pix = QPixmap(file_info['path'])
+        if not orig_pix.isNull():
+            comp_pix = file_info.get('compressed_pixmap')
+            self.comp_viewer.set_images(orig_pix, comp_pix, reset_view=should_reset)
+            
+            # Labels
+            orig_size = ImageThumbnail.format_file_size(file_info['size'])
+            self.comp_viewer.label_left.setText(f"SOURCE: {file_info['name']} ({orig_size})")
+            
+            if file_info['new_size'] is not None:
+                new_size = ImageThumbnail.format_file_size(file_info['new_size'])
+                gain = ((file_info['size'] - file_info['new_size']) / file_info['size'] * 100) if file_info['size'] > 0 else 0
+                self.comp_viewer.label_right.setText(f"OPTIMIZED PREVIEW: {new_size} (-{gain:.1f}%)")
+            else:
+                self.comp_viewer.label_right.setText("PREVIEW (CALCULATION REQUIRED)")
+
+    def toggle_all_comp_selection(self, checked):
+        """Active ou désactive tous les fichiers de la liste de compression"""
+        if not hasattr(self, 'comp_files'): return
+        for f in self.comp_files:
+            f['enabled'] = checked
+        self.update_comp_table()
+        self.update_global_comp_stats()
+
+    # --- Gestion Onglet Compression ---
+
+    def create_comp_list_column(self):
+        col = QWidget()
+        layout = QVBoxLayout(col)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        
+        header = QLabel("IMAGE SELECTION")
+        header.setStyleSheet(f"font-size: 13px; font-weight: bold; color: {STYLE_CONFIG['text_highlight']}; border-bottom: 1px solid {STYLE_CONFIG['border_light']}; padding-bottom: 2px;")
+        layout.addWidget(header)
+        
+        # Folder Select
+        folder_layout = QHBoxLayout()
+        self.comp_folder_btn = QPushButton("SELECT FOLDER")
+        self.comp_folder_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.comp_folder_btn.clicked.connect(self.select_comp_folder)
+        folder_layout.addWidget(self.comp_folder_btn)
+        
+        refresh_btn = QPushButton("🔄")
+        refresh_btn.setFixedSize(34, 34)
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        refresh_btn.clicked.connect(self.refresh_comp_list)
+        refresh_btn.setStyleSheet(f"background-color: {STYLE_CONFIG['bg_button']}; font-size: 16px; padding: 0px;")
+        folder_layout.addWidget(refresh_btn)
+        
+        layout.addLayout(folder_layout)
+        
+        # Search & Filter
+        search_layout = QHBoxLayout()
+        self.comp_search = QLineEdit()
+        self.comp_search.setPlaceholderText("Search images...")
+        self.comp_search.textChanged.connect(self.filter_comp_table)
+        search_layout.addWidget(self.comp_search, 2)
+        
+        self.comp_show_selected_only = QCheckBox("SELECTED ONLY")
+        self.comp_show_selected_only.setStyleSheet(f"color: {STYLE_CONFIG['text_main']}; font-size: 11px;")
+        self.comp_show_selected_only.toggled.connect(self.filter_comp_table)
+        search_layout.addWidget(self.comp_show_selected_only, 1)
+        
+        layout.addLayout(search_layout)
+        
+    # Table
+        self.comp_table = QTableWidget()
+        self.comp_table.setColumnCount(4)
+        self.comp_table.setHorizontalHeaderLabels(["", "File Name", "Dimensions", "Size / Gain"])
+        self.comp_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.comp_table.setColumnWidth(0, 30)
+        self.comp_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.comp_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.comp_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        self.comp_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.comp_table.verticalHeader().setVisible(False)
+        self.comp_table.itemSelectionChanged.connect(self.on_comp_row_changed)
+        self.comp_table.setSortingEnabled(True)
+        
+        # Appliquer le delegate pour garder les couleurs
+        self.comp_table.setItemDelegateForColumn(1, TableColorDelegate(self.comp_table))
+        self.comp_table.setItemDelegateForColumn(2, TableColorDelegate(self.comp_table))
+        self.comp_table.setItemDelegateForColumn(3, TableColorDelegate(self.comp_table))
+        
+        # Checkbox "Tout sélectionner" dans le header de la colonne 0
+        self.comp_header_checkbox = QCheckBox(self.comp_table.horizontalHeader())
+        self.comp_header_checkbox.setChecked(True)
+        self.comp_header_checkbox.toggled.connect(self.toggle_all_comp_selection)
+        # Positionnement manuel dans la première cellule du header (col 0 de 30px)
+        self.comp_header_checkbox.setGeometry(10, 5, 20, 20)
+        
+        layout.addWidget(self.comp_table)
+        return col
+
 
 def main():
     # Gestionnaire d'erreurs global
@@ -2521,7 +3458,6 @@ def main():
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
     except Exception:
         pass
-
     try:
         app = QApplication(sys.argv)
         app.setStyle('Fusion')  # Style moderne
@@ -2532,7 +3468,6 @@ def main():
         sys.exit(app.exec())
     except Exception as e:
         handle_exception(type(e), e, e.__traceback__)
-
 
 
 if __name__ == '__main__':
