@@ -80,6 +80,7 @@ class ImageViewer(QScrollArea):
         self.zoom_factor = 1.0
         self.pixmap = None
         self.last_mouse_pos = None
+        self.display_size_override = None # Taille logique forcée pour l'affichage (stretch)
 
     def set_pixmap(self, pixmap):
         self.pixmap = pixmap
@@ -92,9 +93,11 @@ class ImageViewer(QScrollArea):
 
     def update_viewer(self):
         if self.pixmap and not self.pixmap.isNull():
-            size = self.pixmap.size() * self.zoom_factor
+            # On utilise la taille forcée si elle existe, sinon la taille réelle de la pixmap
+            base_size = self.display_size_override if self.display_size_override else self.pixmap.size()
+            size = base_size * self.zoom_factor
             self.image_label.setFixedSize(size)
-            # setScaledContents(True) s'occupe du reste, c'est plus fluide
+            # setScaledContents(True) s'occupe d'étirer l'image dans le label
         else:
             self.image_label.setFixedSize(QSize(0, 0))
 
@@ -246,12 +249,24 @@ class SyncedImageViewer(QWidget):
         self.is_syncing = True
         self.left_viewer.zoom_factor = zoom
         self.right_viewer.zoom_factor = zoom
+        
+        # On s'assure que la droite utilise toujours la taille de la gauche comme référence d'affichage
+        ref_size = self.left_viewer.pixmap.size() if self.left_viewer.pixmap else None
+        self.right_viewer.display_size_override = ref_size
+        
         self.left_viewer.update_viewer()
         self.right_viewer.update_viewer()
         self.is_syncing = False
 
     def set_images(self, original_pixmap, compressed_pixmap=None, reset_view=True):
+        # La source garde sa taille originale
+        self.left_viewer.display_size_override = None
         self.left_viewer.set_pixmap(original_pixmap)
+        
+        # La preview s'adapte à la taille de la source pour permettre la comparaison à même échelle
+        ref_size = original_pixmap.size() if original_pixmap else None
+        self.right_viewer.display_size_override = ref_size
+        
         if compressed_pixmap:
             self.right_viewer.set_pixmap(compressed_pixmap)
         else:
@@ -980,12 +995,18 @@ class TextureCleaner(QMainWindow):
         self.resize_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.resize_table.verticalHeader().setVisible(False)
         self.resize_table.cellDoubleClicked.connect(self.open_image_popup_from_table) # Popup double clic
-        self.resize_table.itemSelectionChanged.connect(self.reset_resize_options_ui) # Reset UI on selection change
+        self.resize_table.itemSelectionChanged.connect(self.on_resize_row_changed) # Update preview and UI on selection change
         self.resize_table.setSortingEnabled(True)
         
         left_layout.addWidget(self.resize_table)
         
-        top_area_layout.addWidget(left_col, 2) # Plus large que les options
+        top_area_layout.addWidget(left_col, 2)
+        
+        # --- Colonne Droite: Options & Preview ---
+        right_container = QWidget()
+        right_v_layout = QVBoxLayout(right_container)
+        right_v_layout.setContentsMargins(0, 0, 0, 0)
+        right_v_layout.setSpacing(4)
         
         # --- Colonne Droite: Options ---
         right_col = QGroupBox("ACTION SETTINGS")
@@ -1054,7 +1075,14 @@ class TextureCleaner(QMainWindow):
         right_layout.addWidget(self.apply_btn)
         
         right_layout.addStretch()
-        top_area_layout.addWidget(right_col, 1) # Plus petit
+        right_v_layout.addWidget(right_col, 0)
+        
+        # Visionneuse de comparaison (Comme dans l'onglet Compression)
+        self.resize_viewer = SyncedImageViewer()
+        self.resize_viewer.label_right.setText("PREVIEW (RESIZED)")
+        right_v_layout.addWidget(self.resize_viewer, 1)
+        
+        top_area_layout.addWidget(right_container, 3) # Plus de place pour la preview
 
         # --- Zone Basse: Stats et Actions ---
         bottom_container = QFrame()
@@ -2513,6 +2541,7 @@ class TextureCleaner(QMainWindow):
             
         # Update Preview
         self.update_resize_preview()
+        self.on_resize_row_changed() # Force update comparison viewer
         self.filter_resize_table()
 
     def reset_resize_options_ui(self):
@@ -2673,6 +2702,91 @@ class TextureCleaner(QMainWindow):
             self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f44336; padding: 5px;")
         else:
              self.global_stats_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #f1f1f1; padding: 5px;")
+
+    def on_resize_row_changed(self):
+        """Met à jour la visionneuse de comparaison pour l'onglet Resize"""
+        # On garde aussi l'ancien comportement si besoin (actuellement vide)
+        self.reset_resize_options_ui()
+        
+        selection = self.resize_table.selectedItems()
+        if not selection:
+            self.resize_viewer.set_images(QPixmap(), QPixmap())
+            self.resize_viewer.label_left.setText("SOURCE (ORIGINAL)")
+            self.resize_viewer.label_right.setText("PREVIEW (RESIZED)")
+            return
+            
+        row = selection[0].row()
+        item_name = self.resize_table.item(row, 0)
+        if not item_name: return
+        
+        path = item_name.data(Qt.ItemDataRole.UserRole)
+        if not path or not os.path.exists(path): return
+        
+        # Detection pour ne pas reset le zoom si c'est le même fichier
+        should_reset = True
+        if hasattr(self, '_last_selected_resize_path') and self._last_selected_resize_path == path:
+            should_reset = False
+        self._last_selected_resize_path = path
+        
+        # Load original
+        orig_pix = QPixmap(path)
+        if orig_pix.isNull(): return
+        
+        # Get settings for this item
+        is_ratio = item_name.data(Qt.ItemDataRole.UserRole + 10)
+        
+        if is_ratio is not None:
+            # Calculate target size
+            orig_w = item_name.data(Qt.ItemDataRole.UserRole + 1)
+            orig_h = item_name.data(Qt.ItemDataRole.UserRole + 2)
+            ratio_mode = item_name.data(Qt.ItemDataRole.UserRole + 11)
+            val = item_name.data(Qt.ItemDataRole.UserRole + 12)
+            fix_w = item_name.data(Qt.ItemDataRole.UserRole + 13)
+            fix_h = item_name.data(Qt.ItemDataRole.UserRole + 14)
+            
+            new_w, new_h = 0, 0
+            if is_ratio:
+                if ratio_mode == 0: # %
+                    scale = val / 100.0
+                    new_w = int(orig_w * scale)
+                    new_h = int(orig_h * scale)
+                elif ratio_mode == 1: # Largeur fixe
+                    new_w = val
+                    if orig_w > 0:
+                        new_h = int(orig_h * (val / orig_w))
+                elif ratio_mode == 2: # Hauteur fixe
+                    new_h = val
+                    if orig_h > 0:
+                        new_w = int(orig_w * (val / orig_h))
+            else: # Dimensions libres
+                new_w = fix_w
+                new_h = fix_h
+            
+            if new_w > 0 and new_h > 0:
+                # On crée une version redimensionnée pour la prévisualisation
+                img = QImage(path)
+                scaled_img = img.scaled(new_w, new_h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                comp_pix = QPixmap.fromImage(scaled_img)
+                self.resize_viewer.set_images(orig_pix, comp_pix, reset_view=should_reset)
+                
+                # Labels
+                orig_size_str = ImageThumbnail.format_file_size(item_name.data(Qt.ItemDataRole.UserRole + 3))
+                self.resize_viewer.label_left.setText(f"SOURCE: {os.path.basename(path)} ({orig_w}x{orig_h} - {orig_size_str})")
+                
+                # Estimation du poids pour le label
+                orig_pixels = orig_w * orig_h
+                new_pixels = new_w * new_h
+                est_size = item_name.data(Qt.ItemDataRole.UserRole + 3) * (new_pixels / orig_pixels) if orig_pixels > 0 else 0
+                est_size_str = ImageThumbnail.format_file_size(est_size)
+                self.resize_viewer.label_right.setText(f"PREVIEW: {new_w}x{new_h} (~{est_size_str})")
+            else:
+                self.resize_viewer.set_images(orig_pix, orig_pix, reset_view=should_reset)
+                self.resize_viewer.label_right.setText("PREVIEW (INVALID SIZE)")
+        else:
+            # Pas de réglages, afficher l'original des deux côtés
+            self.resize_viewer.set_images(orig_pix, orig_pix, reset_view=should_reset)
+            self.resize_viewer.label_left.setText(f"SOURCE: {os.path.basename(path)}")
+            self.resize_viewer.label_right.setText("PREVIEW (NO SETTINGS)")
 
 
     def execute_resize(self):
